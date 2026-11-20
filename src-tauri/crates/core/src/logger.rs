@@ -1,3 +1,4 @@
+use crate::image::decode_text_bytes;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -77,16 +78,20 @@ impl SessionLogger {
         let dism_log = workspace_dir.join("dism.log");
         if dism_log.exists() {
             report.push_str("\n--- DISM Log (tail) ---\n");
-            if let Ok(content) = fs::read_to_string(&dism_log) {
-                let len = content.len();
-                let tail_start = if len > 256_000 {
-                    content.floor_char_boundary(len - 256_000)
-                } else {
-                    0
-                };
-                report.push_str(&content[tail_start..]);
-            } else {
-                report.push_str("(Failed to read dism.log as UTF-8)\n");
+            match fs::read(&dism_log) {
+                Ok(bytes) => {
+                    let content = decode_text_bytes(&bytes);
+                    let len = content.len();
+                    let tail_start = if len > 256_000 {
+                        content.floor_char_boundary(len - 256_000)
+                    } else {
+                        0
+                    };
+                    report.push_str(&content[tail_start..]);
+                }
+                Err(e) => {
+                    report.push_str(&format!("(Failed to read dism.log: {e})\n"));
+                }
             }
         } else {
             report.push_str("\n--- DISM Log ---\n(No dism.log in current workspace yet)\n");
@@ -116,5 +121,26 @@ mod tests {
         assert_eq!(snap.len(), 2);
         assert_eq!(snap[0].level, "info");
         assert_eq!(snap[1].message, "low disk space");
+    }
+
+    #[test]
+    fn export_diagnostics_handles_non_utf8_dism_log() {
+        let dir = std::env::temp_dir().join(format!("w11_diag_test_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let dism_log = dir.join("dism.log");
+        let mut raw = b"DISM started\nError bytes: ".to_vec();
+        raw.extend_from_slice(&[0xC0, 0xFF, 0xFE, b'\n']);
+        fs::write(&dism_log, raw).unwrap();
+
+        let logger = SessionLogger::new();
+        logger.record("info", "diag test");
+        let dest = dir.join("out.log");
+        logger.export_diagnostics(&dest, &dir).unwrap();
+
+        let exported = fs::read_to_string(&dest).unwrap();
+        assert!(exported.contains("DISM started"));
+        assert!(exported.contains("diag test"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

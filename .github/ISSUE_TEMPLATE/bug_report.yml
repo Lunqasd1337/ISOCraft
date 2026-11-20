@@ -1,0 +1,90 @@
+name: "Сообщение об ошибке / Bug Report"
+description: "Сообщить об ошибке, сбое сборки, ошибке DISM/wimlib или проблеме интерфейса / Report a bug, build failure, DISM/wimlib error, or UI issue"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение об ошибке! Если сбой произошёл при инспекции или сборке образа, приложите экспортированную диагностику (**Экспорт диагностики** → `isocraft-diagnostics.log`, включает хвост `dism.log`).
+
+        Thanks for reporting a bug! If the error occurred during image inspection or build, please attach your exported diagnostics (**Export Diagnostics** → `isocraft-diagnostics.log`, including the `dism.log` tail).
+
+  - type: input
+    id: app_version
+    attributes:
+      label: "Версия ISOCraft / ISOCraft Version"
+      placeholder: "например / e.g. 0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: host_os
+    attributes:
+      label: "ОС на ПК / Host OS"
+      placeholder: "например / e.g. Windows 11 24H2 x64 (Build 26100)"
+    validations:
+      required: true
+
+  - type: input
+    id: target_image
+    attributes:
+      label: "Целевой образ / Source Image"
+      description: "Формат (.iso / .wim / .esd), сборка Windows 11 и выбранная редакция / Format (.iso / .wim / .esd), Windows 11 build, and selected edition."
+      placeholder: "например / e.g. Win11_24H2_Russian_x64.iso — Windows 11 Pro (Index 6)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pipeline_step
+    attributes:
+      label: "Этап, на котором возникла ошибка / Where did the issue occur?"
+      options:
+        - "UI / Инспекция образа / Загрузка каталога (UI / Image Inspection / Catalog)"
+        - "1. Подготовка и распаковка ISO (Prepare Workspace / Extract ISO)"
+        - "2. Одноредакционный экспорт wimlib (Single-Edition Export)"
+        - "3. Монтирование WIM (Mount WIM)"
+        - "4. Компоненты и Capabilities (Features & Capabilities)"
+        - "5. Обновления Windows .msu / .cab (Windows Updates)"
+        - "6. Приложения Appx / MSIX (Provisioned Appx)"
+        - "7. Драйверы .inf (Drivers)"
+        - "8. Очистка / Реестр / Файлы (Cleanup / Offline Registry / Custom Files)"
+        - "9. Финализация / Упаковка / Сборка ISO (Finalize / Package / ISO Build)"
+        - "Пресеты / Восстановление / Автообновление (Presets / Recovery / Updater)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: iso_tool
+    attributes:
+      label: "Инструмент сборки ISO / ISO Builder"
+      options:
+        - "xorriso (встроенный / bundled)"
+        - "oscdimg.exe (Windows ADK)"
+        - "Не применимо (только WIM / ESD / SWM) / N/A (WIM / ESD / SWM only)"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Описание проблемы и шаги воспроизведения / What happened & Steps to reproduce?"
+      description: "Подробно опишите ошибку и шаги для её повторения / Describe the bug and steps to reproduce it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Ожидаемое поведение / Expected behavior"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Логи / Диагностика (isocraft-diagnostics.log / dism.log)"
+      description: "Вставьте фрагмент лога или перетащите файл isocraft-diagnostics.log / Paste relevant log lines or drag-and-drop isocraft-diagnostics.log here."
+      render: text
+    validations:
+      required: false

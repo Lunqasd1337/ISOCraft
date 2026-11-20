@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  verify:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check i18n key parity (ru/en)
+        run: |
+          node -e "const fs=require('fs');const ru=JSON.parse(fs.readFileSync('src/i18n/locales/ru.json','utf8'));const en=JSON.parse(fs.readFileSync('src/i18n/locales/en.json','utf8'));const keys=(o,p='')=>Object.entries(o).flatMap(([k,v])=>v&&typeof v==='object'&&!Array.isArray(v)?keys(v,p?p+'.'+k:k):[p?p+'.'+k:k]);const rk=new Set(keys(ru)),ek=new Set(keys(en));const mEn=[...rk].filter(k=>!ek.has(k)),mRu=[...ek].filter(k=>!rk.has(k));if(mEn.length||mRu.length){console.error({mEn,mRu});process.exit(1);}console.log('i18n keys OK:',rk.size);"
+
+      - name: Build frontend and check TypeScript types
+        run: npm run build
+
+      - name: Check Rust workspace
+        working-directory: src-tauri
+        run: cargo check --workspace --locked
+
+      - name: Run core unit tests
+        working-directory: src-tauri
+        run: cargo test -p isocraft-core --locked

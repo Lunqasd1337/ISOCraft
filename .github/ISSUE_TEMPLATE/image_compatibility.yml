@@ -1,0 +1,44 @@
+name: "Совместимость образа или пакетов / Compatibility Issue"
+description: "Проблемы со сборками Windows 11, UUP dump ISO, Checkpoint CU, .reg или autounattend.xml / Compatibility issues with specific Windows 11 builds, UUP dump, Checkpoint CU, or .reg/autounattend files"
+title: "[Compat]: "
+labels: ["compatibility"]
+body:
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: "Источник образа / Image Source"
+      options:
+        - "Официальный ISO Microsoft (Official Microsoft ISO)"
+        - "UUP dump ISO"
+        - "Пользовательский WIM / ESD (Custom WIM / ESD)"
+        - "Другое (Other)"
+    validations:
+      required: true
+
+  - type: input
+    id: build_info
+    attributes:
+      label: "Сборка и редакция Windows 11 / Windows 11 Build & Edition"
+      placeholder: "например / e.g. 24H2 26100.1742 Pro x64 (ru-RU)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: components
+    attributes:
+      label: "Задействованные компоненты / Involved Components"
+      options:
+        - label: "24H2+ Checkpoint CU + LCU (.msu / .cab)"
+        - label: ".NET Framework 3.5 (sources\\sxs)"
+        - label: "Зависимости Appx / MSIX (Appx / MSIX dependencies)"
+        - label: "Драйверы в boot.wim Index 2 (boot.wim drivers)"
+        - label: "Оффлайн .reg (TrustedInstaller / NTUSER.DAT / CurrentControlSet)"
+        - label: "autounattend.xml / загрузка UEFI или Legacy BIOS (UEFI / BIOS boot)"
+
+  - type: textarea
+    id: details
+    attributes:
+      label: "Подробности и логи / Details & Logs"
+      description: "Опишите, что именно не сработало (код ошибки DISM, ошибка загрузки в VM), и приложите isocraft-diagnostics.log / Explain what failed (DISM error code, VM boot error) and attach isocraft-diagnostics.log."
+    validations:
+      required: true

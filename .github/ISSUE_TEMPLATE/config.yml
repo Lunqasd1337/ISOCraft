@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Релизы и загрузки / Releases & Downloads"
+    url: https://github.com/Lunqasd1337/ISOCraft/releases
+    about: "Проверьте, не исправлена ли проблема в последнем релизе / Check if your issue is already fixed in the latest release."
+  - name: "Документация / Documentation"
+    url: https://github.com/Lunqasd1337/ISOCraft/tree/main/docs
+    about: "Изучите README, ARCHITECTURE.md и PRESET_SCHEMA.md / Read README, ARCHITECTURE.md, and PRESET_SCHEMA.md before opening an issue."

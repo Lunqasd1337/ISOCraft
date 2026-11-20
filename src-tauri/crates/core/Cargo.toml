@@ -1,6 +1,8 @@
 [package]
 name = "isocraft-core"
 version = "0.2.0"
+authors = ["Lunqasd1337"]
+license = "MIT"
 edition = "2021"
 
 [dependencies]

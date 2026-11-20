@@ -546,7 +546,9 @@ export function SettingsModal({
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-border-subtle bg-sidebar flex items-center justify-between gap-3">
           <span className="text-[12px] font-mono text-text-secondary select-all">
-            {appVersion ? `${t("app.name")} v${appVersion}` : t("app.name")}
+            {appVersion
+              ? `${t("app.name")} v${appVersion} • © 2026 Lunqasd1337`
+              : `${t("app.name")} • © 2026 Lunqasd1337`}
           </span>
           <div className="flex items-center gap-2">
             <button

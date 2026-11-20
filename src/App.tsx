@@ -64,6 +64,8 @@ const EMPTY_FEATURES_QUEUE: FeaturesQueueState = {
   enableAll: true,
   limitAccess: true,
   customSxsPath: null,
+  featureOverrides: {},
+  capabilityOverrides: {},
 };
 
 const EMPTY_UPDATES_QUEUE: UpdatesQueueState = {
@@ -425,14 +427,22 @@ export function App() {
           features: {
             enable: featuresQueue.enableFeatures.map((name) => ({
               name,
-              enableAll: featuresQueue.enableAll,
-              customSxsPath: featuresQueue.customSxsPath,
+              enableAll:
+                featuresQueue.featureOverrides?.[name]?.enableAll ??
+                featuresQueue.enableAll,
+              customSxsPath:
+                featuresQueue.featureOverrides?.[name]?.customSxsPath ??
+                featuresQueue.customSxsPath,
             })),
             disable: featuresQueue.disableFeatures,
             capabilitiesAdd: featuresQueue.addCapabilities.map((name) => ({
               name,
-              limitAccess: featuresQueue.limitAccess,
-              customSxsPath: featuresQueue.customSxsPath,
+              limitAccess:
+                featuresQueue.capabilityOverrides?.[name]?.limitAccess ??
+                featuresQueue.limitAccess,
+              customSxsPath:
+                featuresQueue.capabilityOverrides?.[name]?.customSxsPath ??
+                featuresQueue.customSxsPath,
             })),
             capabilitiesRemove: featuresQueue.removeCapabilities,
             defaultSxsPath: featuresQueue.customSxsPath,
@@ -554,14 +564,22 @@ export function App() {
       features: {
         enable: featuresQueue.enableFeatures.map((name) => ({
           name,
-          enableAll: featuresQueue.enableAll,
-          customSxsPath: featuresQueue.customSxsPath,
+          enableAll:
+            featuresQueue.featureOverrides?.[name]?.enableAll ??
+            featuresQueue.enableAll,
+          customSxsPath:
+            featuresQueue.featureOverrides?.[name]?.customSxsPath ??
+            featuresQueue.customSxsPath,
         })),
         disable: featuresQueue.disableFeatures,
         capabilitiesAdd: featuresQueue.addCapabilities.map((name) => ({
           name,
-          limitAccess: featuresQueue.limitAccess,
-          customSxsPath: featuresQueue.customSxsPath,
+          limitAccess:
+            featuresQueue.capabilityOverrides?.[name]?.limitAccess ??
+            featuresQueue.limitAccess,
+          customSxsPath:
+            featuresQueue.capabilityOverrides?.[name]?.customSxsPath ??
+            featuresQueue.customSxsPath,
         })),
         capabilitiesRemove: featuresQueue.removeCapabilities,
         defaultSxsPath: featuresQueue.customSxsPath,
@@ -667,6 +685,26 @@ export function App() {
         p.features.enable.find((e) => Boolean(e.customSxsPath))?.customSxsPath ??
         p.features.capabilitiesAdd.find((c) => Boolean(c.customSxsPath))?.customSxsPath ??
         null;
+      const featureOverrides: Record<
+        string,
+        { enableAll: boolean; customSxsPath: string | null }
+      > = {};
+      for (const f of p.features.enable) {
+        featureOverrides[f.name] = {
+          enableAll: f.enableAll,
+          customSxsPath: f.customSxsPath ?? resolvedSxs,
+        };
+      }
+      const capabilityOverrides: Record<
+        string,
+        { limitAccess: boolean; customSxsPath: string | null }
+      > = {};
+      for (const c of p.features.capabilitiesAdd) {
+        capabilityOverrides[c.name] = {
+          limitAccess: c.limitAccess,
+          customSxsPath: c.customSxsPath ?? resolvedSxs,
+        };
+      }
       setFeaturesQueue({
         enableFeatures: p.features.enable.map((f) => f.name),
         disableFeatures: p.features.disable,
@@ -675,6 +713,8 @@ export function App() {
         enableAll: p.features.enable[0]?.enableAll ?? true,
         limitAccess: p.features.capabilitiesAdd[0]?.limitAccess ?? true,
         customSxsPath: resolvedSxs,
+        featureOverrides,
+        capabilityOverrides,
       });
 
       const loadedUpdates: UpdateQueueItem[] = [];
@@ -930,7 +970,29 @@ export function App() {
           break;
         }
         case "featuresSxs": {
-          setFeaturesQueue((prev) => ({ ...prev, customSxsPath: picked }));
+          setFeaturesQueue((prev) => {
+            const nextFeat = { ...(prev.featureOverrides ?? {}) };
+            for (const [k, v] of Object.entries(nextFeat)) {
+              if (v.customSxsPath?.toLowerCase() === oldLower) {
+                nextFeat[k] = { ...v, customSxsPath: picked };
+              }
+            }
+            const nextCap = { ...(prev.capabilityOverrides ?? {}) };
+            for (const [k, v] of Object.entries(nextCap)) {
+              if (v.customSxsPath?.toLowerCase() === oldLower) {
+                nextCap[k] = { ...v, customSxsPath: picked };
+              }
+            }
+            return {
+              ...prev,
+              customSxsPath:
+                !prev.customSxsPath || prev.customSxsPath.toLowerCase() === oldLower
+                  ? picked
+                  : prev.customSxsPath,
+              featureOverrides: nextFeat,
+              capabilityOverrides: nextCap,
+            };
+          });
           break;
         }
         case "updateItem": {
@@ -1071,7 +1133,29 @@ export function App() {
         }));
         break;
       case "featuresSxs":
-        setFeaturesQueue((prev) => ({ ...prev, customSxsPath: null }));
+        setFeaturesQueue((prev) => {
+          const nextFeat = { ...(prev.featureOverrides ?? {}) };
+          for (const [k, v] of Object.entries(nextFeat)) {
+            if (v.customSxsPath?.toLowerCase() === oldLower) {
+              nextFeat[k] = { ...v, customSxsPath: null };
+            }
+          }
+          const nextCap = { ...(prev.capabilityOverrides ?? {}) };
+          for (const [k, v] of Object.entries(nextCap)) {
+            if (v.customSxsPath?.toLowerCase() === oldLower) {
+              nextCap[k] = { ...v, customSxsPath: null };
+            }
+          }
+          return {
+            ...prev,
+            customSxsPath:
+              prev.customSxsPath?.toLowerCase() === oldLower
+                ? null
+                : prev.customSxsPath,
+            featureOverrides: nextFeat,
+            capabilityOverrides: nextCap,
+          };
+        });
         break;
       case "updateItem":
         setUpdatesQueue((prev) => ({
