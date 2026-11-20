@@ -1,0 +1,44 @@
+name: "Compatibility Issue / Совместимость образа или пакетов"
+description: "Report compatibility issues with specific Windows 11 builds, UUP dump ISOs, Checkpoint CU updates, or .reg/autounattend files"
+title: "[Compat]: "
+labels: ["compatibility"]
+body:
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: Image Source / Источник образа
+      options:
+        - "Official Microsoft ISO (Media Creation Tool / TechBench)"
+        - "UUP dump ISO"
+        - "Custom WIM / ESD"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: build_info
+    attributes:
+      label: Windows 11 Build & Edition / Сборка и редакция Windows 11
+      placeholder: "e.g. 24H2 26100.1742 Pro x64 (ru-RU)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: components
+    attributes:
+      label: Involved Components / Задействованные компоненты
+      options:
+        - label: "24H2+ Checkpoint CU + LCU (.msu / .cab)"
+        - label: ".NET Framework 3.5 (sources\\sxs)"
+        - label: "Appx / MSIX dependencies"
+        - label: "boot.wim (Index 2) drivers"
+        - label: "Offline .reg (TrustedInstaller / NTUSER.DAT / CurrentControlSet)"
+        - label: "autounattend.xml / UEFI or Legacy BIOS boot"
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details & Logs / Подробности и логи
+      description: Explain what failed (e.g. DISM error code, VM boot error) and attach `isocraft-diagnostics.log` if possible.
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Releases & Downloads
+    url: https://github.com/Lunqasd1337/ISOCraft/releases
+    about: Check if your issue is already fixed in the latest release of ISOCraft.
+  - name: Architecture & Troubleshooting Docs
+    url: https://github.com/Lunqasd1337/ISOCraft
+    about: Read README, ARCHITECTURE.md, and PRESET_SCHEMA.md before opening an issue.

@@ -1,0 +1,88 @@
+name: "Bug Report / Сообщение об ошибке"
+description: "Report a bug, build failure, DISM/wimlib error, or UI issue in ISOCraft"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please attach your exported diagnostics (`Export Diagnostics` → `isocraft-diagnostics.log`, which includes the `dism.log` tail) if the error happened during image inspection or build.
+
+  - type: input
+    id: app_version
+    attributes:
+      label: ISOCraft Version / Версия ISOCraft
+      placeholder: "e.g. 0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: host_os
+    attributes:
+      label: Host OS / Версия Windows на ПК
+      placeholder: "e.g. Windows 11 24H2 x64 (Build 26100)"
+    validations:
+      required: true
+
+  - type: input
+    id: target_image
+    attributes:
+      label: Source Image / Целевой образ
+      description: Format (.iso / .wim / .esd), Windows 11 build, and selected edition.
+      placeholder: "e.g. Win11_24H2_Russian_x64.iso — Windows 11 Pro (Index 6)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pipeline_step
+    attributes:
+      label: Where did the issue occur? / На каком этапе возникла ошибка?
+      options:
+        - "UI / Image Inspection / Catalog Loading"
+        - "1. Prepare Workspace / Extract ISO"
+        - "2. Single-Edition Export (wimlib)"
+        - "3. Mount WIM (DISM)"
+        - "4. Features & Capabilities"
+        - "5. Windows Updates (.msu / .cab)"
+        - "6. Provisioned Appx / MSIX"
+        - "7. Drivers (.inf)"
+        - "8. Component Cleanup / Offline Registry / Custom Files"
+        - "9. Finalize / Package / ISO Build"
+        - "Presets / Crash Recovery / Updater"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: iso_tool
+    attributes:
+      label: ISO Builder / Инструмент сборки ISO
+      options:
+        - "xorriso (bundled)"
+        - "oscdimg.exe (Windows ADK)"
+        - "N/A (WIM / ESD / SWM only)"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened? / Описание проблемы
+      description: Describe the bug and steps to reproduce it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / Ожидаемое поведение
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Diagnostics (`isocraft-diagnostics.log` / `dism.log`)
+      description: Paste relevant log lines or drag-and-drop `isocraft-diagnostics.log` here.
+      render: text
+    validations:
+      required: false
