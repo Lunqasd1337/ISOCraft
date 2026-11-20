@@ -7,12 +7,14 @@ import {
   FileArchive,
   Folder,
   FolderPlus,
+  Globe,
   Info,
   Plus,
   RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
+import { CatalogModal } from "./CatalogModal";
 import { EmptyStateCard, ScreenHeader } from "./ScreenShell";
 import type {
   UpdateQueueItem,
@@ -22,6 +24,8 @@ import type {
 
 interface UpdatesScreenProps {
   hasValidImage: boolean;
+  editionBuildNumber?: number | null;
+  workspaceDir?: string;
   updatesQueue: UpdatesQueueState;
   onChangeUpdatesQueue: (next: UpdatesQueueState) => void;
 }
@@ -41,11 +45,28 @@ function formatBytes(bytes: number): string {
 
 export function UpdatesScreen({
   hasValidImage,
+  editionBuildNumber = null,
+  workspaceDir = "",
   updatesQueue,
   onChangeUpdatesQueue,
 }: UpdatesScreenProps) {
   const { t } = useTranslation();
   const [scanError, setScanError] = useState<string | null>(null);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+
+  const mergeUpdateItems = (added: UpdateQueueItem[]) => {
+    if (added.length === 0) return;
+    const existingMap = new Map(
+      updatesQueue.items.map((item) => [item.path.toLowerCase(), item])
+    );
+    for (const item of added) {
+      existingMap.set(item.path.toLowerCase(), item);
+    }
+    onChangeUpdatesQueue({
+      ...updatesQueue,
+      items: Array.from(existingMap.values()),
+    });
+  };
 
   const scanAndAddPaths = async (paths: string[]) => {
     setScanError(null);
@@ -58,18 +79,7 @@ export function UpdatesScreen({
         setScanError(t("screens.updates.scanError", { error: String(err) }));
       }
     }
-    if (added.length > 0) {
-      const existingMap = new Map(
-        updatesQueue.items.map((item) => [item.path.toLowerCase(), item])
-      );
-      for (const item of added) {
-        existingMap.set(item.path.toLowerCase(), item);
-      }
-      onChangeUpdatesQueue({
-        ...updatesQueue,
-        items: Array.from(existingMap.values()),
-      });
-    }
+    mergeUpdateItems(added);
   };
 
   const handleAddFiles = async () => {
@@ -106,6 +116,15 @@ export function UpdatesScreen({
         subtitle={t("screens.updates.subtitle")}
         actions={
           <>
+            <button
+              type="button"
+              disabled={!hasValidImage}
+              onClick={() => setIsCatalogOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] font-medium bg-surface border border-border-subtle hover:bg-subtle text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Globe className="w-4 h-4" strokeWidth={1.6} />
+              <span>{t("screens.updates.catalogBtn")}</span>
+            </button>
             <button
               type="button"
               disabled={!hasValidImage}
@@ -164,6 +183,14 @@ export function UpdatesScreen({
               description={t("screens.updates.emptyDesc")}
               action={
                 <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCatalogOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-[13px] font-medium bg-surface border border-border-subtle hover:bg-subtle text-text-primary transition-colors"
+                  >
+                    <Globe className="w-4 h-4" strokeWidth={1.6} />
+                    <span>{t("screens.updates.catalogBtn")}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleAddFiles}
@@ -244,6 +271,16 @@ export function UpdatesScreen({
             </div>
           )}
         </>
+      )}
+
+      {isCatalogOpen && (
+        <CatalogModal
+          editionBuildNumber={editionBuildNumber}
+          workspaceDir={workspaceDir}
+          queuedPaths={updatesQueue.items.map((i) => i.path)}
+          onDownloaded={mergeUpdateItems}
+          onClose={() => setIsCatalogOpen(false)}
+        />
       )}
     </div>
   );
