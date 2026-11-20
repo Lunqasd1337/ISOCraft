@@ -243,10 +243,10 @@ where
         .join("boot")
         .join("efisys.bin");
 
-    let (uefi_boot_rel, uefi_boot_abs) = if opts.uefi_no_prompt && efi_noprompt_abs.is_file() {
-        ("efi/microsoft/boot/efisys_noprompt.bin", efi_noprompt_abs)
+    let uefi_boot_rel = if opts.uefi_no_prompt && efi_noprompt_abs.is_file() {
+        "efi/microsoft/boot/efisys_noprompt.bin"
     } else if efi_prompt_abs.is_file() {
-        ("efi/microsoft/boot/efisys.bin", efi_prompt_abs)
+        "efi/microsoft/boot/efisys.bin"
     } else {
         return Err(
             "UEFI boot image (efisys.bin / efisys_noprompt.bin) missing in ISO root.".to_string(),
@@ -283,24 +283,46 @@ where
         clean_label
     };
 
-    if let Some(oscdimg) = opts.oscdimg_path.filter(|p| p.is_file()) {
+    if let Some(oscdimg) = opts
+        .oscdimg_path
+        .filter(|p| crate::env::is_valid_oscdimg_path(p))
+    {
         on_log(&format!(
             "Building ISO using oscdimg.exe: {}",
             oscdimg.display()
         ));
+        let output_iso_abs = if opts.output_iso.is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(opts.output_iso))
+                .unwrap_or_else(|_| opts.output_iso.to_path_buf())
+        } else {
+            opts.output_iso.to_path_buf()
+        };
+        let bios_boot_rel_win = Path::new(r"boot\etfsboot.com");
+        let uefi_boot_rel_win = if uefi_boot_rel.ends_with("efisys_noprompt.bin") {
+            Path::new(r"efi\microsoft\boot\efisys_noprompt.bin")
+        } else {
+            Path::new(r"efi\microsoft\boot\efisys.bin")
+        };
         let args = build_oscdimg_args(
             opts.iso_root,
-            opts.output_iso,
-            &bios_boot_abs,
-            &uefi_boot_abs,
+            &output_iso_abs,
+            bios_boot_rel_win,
+            uefi_boot_rel_win,
             &label,
         );
 
-        let out = run_tracked_command(&oscdimg.to_string_lossy(), &args, None, guard, |line| {
-            if !line.trim().is_empty() {
-                on_log(line);
-            }
-        })
+        let out = run_tracked_command(
+            &oscdimg.to_string_lossy(),
+            &args,
+            Some(opts.iso_root),
+            guard,
+            |line| {
+                if !line.trim().is_empty() {
+                    on_log(line);
+                }
+            },
+        )
         .await?;
 
         if out.exit_code != 0 {
@@ -470,14 +492,10 @@ mod tests {
     fn builds_oscdimg_args_with_spaces_and_cyrillic() {
         let root = Path::new(r"C:\Рабочая папка\iso_root");
         let out = Path::new(r"D:\Сборка Win11\ISOCraft Final.iso");
-        let bios = root.join("boot").join("etfsboot.com");
-        let uefi = root
-            .join("efi")
-            .join("microsoft")
-            .join("boot")
-            .join("efisys_noprompt.bin");
+        let bios = Path::new(r"boot\etfsboot.com");
+        let uefi = Path::new(r"efi\microsoft\boot\efisys_noprompt.bin");
 
-        let args = build_oscdimg_args(root, out, &bios, &uefi, "WIN11_CUSTOM");
+        let args = build_oscdimg_args(root, out, bios, uefi, "WIN11_CUSTOM");
         assert!(args.contains(&"-m".to_string()));
         assert!(args.contains(&"-o".to_string()));
         assert!(args.contains(&"-u2".to_string()));
@@ -486,8 +504,9 @@ mod tests {
         let bootdata = args.iter().find(|a| a.starts_with("-bootdata:")).unwrap();
         assert_eq!(
             bootdata,
-            r"-bootdata:2#p0,e,bC:\Рабочая папка\iso_root\boot\etfsboot.com#pEF,e,bC:\Рабочая папка\iso_root\efi\microsoft\boot\efisys_noprompt.bin"
+            r"-bootdata:2#p0,e,bboot\etfsboot.com#pEF,e,befi\microsoft\boot\efisys_noprompt.bin"
         );
+        assert!(!bootdata.contains(' '));
         assert_eq!(args[args.len() - 2], r"C:\Рабочая папка\iso_root");
         assert_eq!(args[args.len() - 1], r"D:\Сборка Win11\ISOCraft Final.iso");
     }

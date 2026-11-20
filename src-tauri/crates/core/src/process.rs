@@ -56,6 +56,19 @@ impl ProcessGuard {
         BusyScope { guard: self }
     }
 
+    pub fn try_enter_busy(&self) -> Option<BusyScope<'_>> {
+        if self
+            .active_operation
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.cancel_requested.store(false, Ordering::SeqCst);
+            Some(BusyScope { guard: self })
+        } else {
+            None
+        }
+    }
+
     pub fn set_busy(&self, busy: bool) {
         if busy {
             self.cancel_requested.store(false, Ordering::SeqCst);
@@ -129,6 +142,20 @@ pub async fn run_tracked_command<F>(
     args: &[String],
     current_dir: Option<&Path>,
     guard: Option<&ProcessGuard>,
+    on_line: F,
+) -> Result<CommandOutput, String>
+where
+    F: FnMut(&str) + Send,
+{
+    run_tracked_command_with_env(program, args, current_dir, &[], guard, on_line).await
+}
+
+pub async fn run_tracked_command_with_env<F>(
+    program: &str,
+    args: &[String],
+    current_dir: Option<&Path>,
+    envs: &[(&str, &std::ffi::OsStr)],
+    guard: Option<&ProcessGuard>,
     mut on_line: F,
 ) -> Result<CommandOutput, String>
 where
@@ -148,6 +175,10 @@ where
 
     if let Some(dir) = current_dir {
         cmd.current_dir(dir);
+    }
+
+    if !envs.is_empty() {
+        cmd.envs(envs.iter().copied());
     }
 
     #[cfg(windows)]
@@ -308,5 +339,17 @@ mod tests {
             .unwrap();
         assert!(!guard.is_busy());
         assert!(!guard.is_cancel_requested());
+    }
+
+    #[test]
+    fn try_enter_busy_prevents_concurrent_entry() {
+        let guard = ProcessGuard::new();
+        let scope = guard.try_enter_busy().expect("first entry must succeed");
+        assert!(guard.is_busy());
+        assert!(guard.try_enter_busy().is_none());
+
+        drop(scope);
+        assert!(!guard.is_busy());
+        assert!(guard.try_enter_busy().is_some());
     }
 }

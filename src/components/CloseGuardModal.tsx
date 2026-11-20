@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
+import { FluentModal, useAnimatedModalClose } from "./FluentModal";
 
 interface CloseGuardModalProps {
   onKeepRunning: () => void;
@@ -13,46 +12,17 @@ export function CloseGuardModal({
   onForceStop,
 }: CloseGuardModalProps) {
   const { t } = useTranslation();
-  const [isClosing, setIsClosing] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
+  const { isClosing, requestClose: requestKeepRunning } =
+    useAnimatedModalClose(onKeepRunning);
 
-  const requestKeepRunning = useCallback(() => {
-    if (isClosing) return;
-    setIsClosing(true);
-    closeTimerRef.current = window.setTimeout(() => {
-      onKeepRunning();
-    }, 140);
-  }, [isClosing, onKeepRunning]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        requestKeepRunning();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [requestKeepRunning]);
-
-  return createPortal(
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) requestKeepRunning();
-      }}
-      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
+  return (
+    <FluentModal
+      isClosing={isClosing}
+      onRequestClose={requestKeepRunning}
+      maxWidthClass="max-w-[440px]"
+      backdropClass="bg-black/50"
     >
-      <div
-        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden`}
-      >
-        <div className="p-5 flex items-start gap-3.5">
+      <div className="p-5 flex items-start gap-3.5">
           <div className="w-9 h-9 rounded-full bg-status-warning-bg text-status-warning flex items-center justify-center shrink-0">
             <AlertTriangle className="animate-fluent-icon-pop w-5 h-5" strokeWidth={1.75} />
           </div>
@@ -82,7 +52,6 @@ export function CloseGuardModal({
           </button>
         </div>
       </div>
-    </div>,
-    document.body
+    </FluentModal>
   );
 }

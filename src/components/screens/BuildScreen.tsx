@@ -706,7 +706,10 @@ export function BuildScreen({
                         onChange={(e) =>
                           onChangeOutput({
                             ...output,
-                            splitSizeMb: Math.max(100, Number(e.target.value) || 3800),
+                            splitSizeMb: Math.min(
+                              4095,
+                              Math.max(100, Number(e.target.value) || 3800)
+                            ),
                           })
                         }
                         className="w-24 px-2 py-1 rounded bg-canvas border border-border-subtle text-[12px] font-mono text-text-primary"

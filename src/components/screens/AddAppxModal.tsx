@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FluentModal, useAnimatedModalClose } from "../FluentModal";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, FolderOpen, Plus, Trash2, X } from "lucide-react";
@@ -25,34 +25,7 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
   const [licensePath, setLicensePath] = useState("");
   const [stubOption, setStubOption] = useState<StubOption>("None");
   const [regionAll, setRegionAll] = useState(true);
-  const [isClosing, setIsClosing] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
-
-  const requestClose = useCallback(() => {
-    if (isClosing) return;
-    setIsClosing(true);
-    closeTimerRef.current = window.setTimeout(() => {
-      onClose();
-    }, 140);
-  }, [isClosing, onClose]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        requestClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [requestClose]);
+  const { isClosing, requestClose } = useAnimatedModalClose(onClose);
 
   const handleBrowsePackage = async () => {
     const selected = await open({
@@ -137,17 +110,14 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
   const canSubmit =
     packagePath.trim().length > 0 && (skipLicense || licensePath.trim().length > 0);
 
-  return createPortal(
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) requestClose();
-      }}
-      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+  return (
+    <FluentModal
+      isClosing={isClosing}
+      onRequestClose={requestClose}
+      maxWidthClass="max-w-[600px]"
+      panelClassName="flex flex-col max-h-[85vh]"
     >
-      <div
-        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
-      >
-        <div className="px-5 py-4 border-b border-border-subtle flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-border-subtle flex items-center justify-between">
           <h2 className="text-[15.5px] font-semibold text-text-primary">
             {t("screens.apps.modal.title")}
           </h2>
@@ -350,7 +320,6 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
           </button>
         </div>
       </div>
-    </div>,
-    document.body
+    </FluentModal>
   );
 }

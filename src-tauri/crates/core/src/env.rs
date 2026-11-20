@@ -85,15 +85,22 @@ pub fn check_environment_status(
     }
 }
 
-fn find_system_or_path(system_path: &str, exe_name: &str) -> ToolStatus {
-    let sys_exe = PathBuf::from(system_path);
-    if sys_exe.exists() {
+fn windows_root_dir() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("WINDIR"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+}
+
+fn find_system_binary(sys_exe: PathBuf, exe_name: &str) -> ToolStatus {
+    if sys_exe.is_file() {
         return ToolStatus {
             found: true,
             path: Some(sys_exe.to_string_lossy().to_string()),
             source: "system".to_string(),
         };
     }
+    #[cfg(debug_assertions)]
     if let Some(p) = search_path(exe_name) {
         return ToolStatus {
             found: true,
@@ -101,6 +108,7 @@ fn find_system_or_path(system_path: &str, exe_name: &str) -> ToolStatus {
             source: "path".to_string(),
         };
     }
+    let _ = exe_name;
     ToolStatus {
         found: false,
         path: None,
@@ -109,12 +117,35 @@ fn find_system_or_path(system_path: &str, exe_name: &str) -> ToolStatus {
 }
 
 pub fn find_dism() -> ToolStatus {
-    find_system_or_path(r"C:\Windows\System32\dism.exe", "dism.exe")
+    find_system_binary(
+        windows_root_dir().join("System32").join("dism.exe"),
+        "dism.exe",
+    )
 }
 
 /// Locates the system curl.exe utility used for Microsoft Update Catalog HTTP operations.
 pub fn find_curl() -> ToolStatus {
-    find_system_or_path(r"C:\Windows\System32\curl.exe", "curl.exe")
+    find_system_binary(
+        windows_root_dir().join("System32").join("curl.exe"),
+        "curl.exe",
+    )
+}
+
+/// Locates the system Windows PowerShell 5.1 executable in `%SystemRoot%\System32`.
+pub fn find_powershell() -> ToolStatus {
+    find_system_binary(
+        windows_root_dir()
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe"),
+        "powershell.exe",
+    )
+}
+
+/// Locates `explorer.exe` in `%SystemRoot%`.
+pub fn find_explorer() -> ToolStatus {
+    find_system_binary(windows_root_dir().join("explorer.exe"), "explorer.exe")
 }
 
 pub fn find_bundled_or_path(
@@ -130,6 +161,8 @@ pub fn find_bundled_or_path(
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             search_roots.push(exe_dir.join("resources").join("bin"));
+            search_roots.push(exe_dir.join("bin"));
+            #[cfg(debug_assertions)]
             if let Some(target_dir) = exe_dir.parent().and_then(|p| p.parent()) {
                 if let Some(src_tauri_dir) = target_dir.parent() {
                     search_roots.push(src_tauri_dir.join("resources").join("bin"));
@@ -137,6 +170,7 @@ pub fn find_bundled_or_path(
             }
         }
     }
+    #[cfg(debug_assertions)]
     if let Ok(cwd) = std::env::current_dir() {
         search_roots.push(cwd.join("src-tauri").join("resources").join("bin"));
         search_roots.push(cwd.join("resources").join("bin"));
@@ -145,7 +179,7 @@ pub fn find_bundled_or_path(
     for root in search_roots {
         for rel in relative_candidates {
             let candidate = root.join(rel);
-            if candidate.exists() {
+            if candidate.is_file() {
                 return ToolStatus {
                     found: true,
                     path: Some(candidate.to_string_lossy().to_string()),
@@ -155,6 +189,7 @@ pub fn find_bundled_or_path(
         }
     }
 
+    #[cfg(debug_assertions)]
     if let Some(p) = search_path(exe_name) {
         return ToolStatus {
             found: true,
@@ -163,6 +198,7 @@ pub fn find_bundled_or_path(
         };
     }
 
+    let _ = exe_name;
     ToolStatus {
         found: false,
         path: None,
@@ -170,10 +206,31 @@ pub fn find_bundled_or_path(
     }
 }
 
+pub fn is_valid_oscdimg_path(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            return false;
+        }
+    }
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.eq_ignore_ascii_case("oscdimg.exe"))
+        .unwrap_or(false)
+}
+
 pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
     if let Some(custom) = custom_path.filter(|s| !s.trim().is_empty()) {
         let p = PathBuf::from(custom.trim());
-        if p.exists() {
+        if is_valid_oscdimg_path(&p) {
             return ToolStatus {
                 found: true,
                 path: Some(p.to_string_lossy().to_string()),
@@ -189,7 +246,7 @@ pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
     ];
     for candidate in adk_candidates {
         let p = Path::new(candidate);
-        if p.exists() {
+        if is_valid_oscdimg_path(p) {
             return ToolStatus {
                 found: true,
                 path: Some(candidate.to_string()),
@@ -198,12 +255,15 @@ pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
         }
     }
 
+    #[cfg(debug_assertions)]
     if let Some(p) = search_path("oscdimg.exe") {
-        return ToolStatus {
-            found: true,
-            path: Some(p.to_string_lossy().to_string()),
-            source: "path".to_string(),
-        };
+        if is_valid_oscdimg_path(&p) {
+            return ToolStatus {
+                found: true,
+                path: Some(p.to_string_lossy().to_string()),
+                source: "path".to_string(),
+            };
+        }
     }
 
     ToolStatus {
@@ -213,6 +273,7 @@ pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
     }
 }
 
+#[cfg(debug_assertions)]
 fn search_path(exe_name: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
@@ -308,5 +369,31 @@ mod tests {
     fn converts_bytes_to_gb_accurately() {
         let forty_gb = 40u64 * 1024 * 1024 * 1024;
         assert!((free_space_to_gb(forty_gb) - 40.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn validates_oscdimg_filename_strictly() {
+        let dir =
+            std::env::temp_dir().join(format!("isocraft_oscdimg_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let valid = dir.join("oscdimg.exe");
+        let evil = dir.join("cmd.exe");
+        std::fs::write(&valid, b"mz").unwrap();
+        std::fs::write(&evil, b"mz").unwrap();
+
+        assert!(is_valid_oscdimg_path(&valid));
+        assert!(!is_valid_oscdimg_path(&evil));
+        assert!(!is_valid_oscdimg_path(&dir));
+        assert!(!is_valid_oscdimg_path(&dir.join("missing_oscdimg.exe")));
+
+        #[cfg(windows)]
+        {
+            // On case-insensitive Windows NTFS `uppercase` resolves to the same file
+            let uppercase = dir.join("OSCDIMG.EXE");
+            assert!(is_valid_oscdimg_path(&uppercase));
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

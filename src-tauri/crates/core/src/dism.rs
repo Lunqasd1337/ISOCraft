@@ -1,8 +1,7 @@
 use crate::apps::{extract_package_family_name, protected_appx_reason, ProvisionedAppxInfo};
 use crate::features::{WindowsCapabilityInfo, WindowsFeatureInfo};
 use crate::image::{
-    dismount_iso, escape_ps_single_quoted, mount_iso_drive_letter,
-    run_powershell_script_tracked, SourceKind,
+    dismount_iso, mount_iso_drive_letter, run_powershell_script_with_env, SourceKind,
 };
 use crate::process::ProcessGuard;
 use crate::wim::{export_single_edition, mount_wim, unmount_wim};
@@ -168,13 +167,15 @@ pub async fn query_mounted_appx_list_tracked(
     mount_dir: &Path,
     guard: Option<&ProcessGuard>,
 ) -> Result<Vec<ProvisionedAppxInfo>, String> {
-    let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
-    let script = format!(
-        "Import-Module Dism -ErrorAction Stop; \
-         $items = @(Get-AppxProvisionedPackage -Path '{esc}' | Select-Object DisplayName, PackageName, @{{N='Version';E={{$_.Version.ToString()}}}}, PublisherId); \
-         ConvertTo-Json -InputObject $items -Depth 4 -Compress"
-    );
-    let json = run_powershell_script_tracked(&script, guard).await?;
+    let script = "Import-Module Dism -ErrorAction Stop; \
+         $items = @(Get-AppxProvisionedPackage -Path $env:ISOCRAFT_TARGET_PATH | Select-Object DisplayName, PackageName, @{N='Version';E={$_.Version.ToString()}}, PublisherId); \
+         ConvertTo-Json -InputObject $items -Depth 4 -Compress";
+    let json = run_powershell_script_with_env(
+        script,
+        &[("ISOCRAFT_TARGET_PATH", mount_dir.as_os_str())],
+        guard,
+    )
+    .await?;
     parse_ps_appx_json(&json)
 }
 
@@ -188,13 +189,15 @@ pub async fn query_mounted_features_list_tracked(
     mount_dir: &Path,
     guard: Option<&ProcessGuard>,
 ) -> Result<Vec<WindowsFeatureInfo>, String> {
-    let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
-    let script = format!(
-        "Import-Module Dism -ErrorAction Stop; \
-         $items = @(Get-WindowsOptionalFeature -Path '{esc}' | Select-Object FeatureName, @{{N='State';E={{$_.State.ToString()}}}}); \
-         ConvertTo-Json -InputObject $items -Depth 3 -Compress"
-    );
-    let json = run_powershell_script_tracked(&script, guard).await?;
+    let script = "Import-Module Dism -ErrorAction Stop; \
+         $items = @(Get-WindowsOptionalFeature -Path $env:ISOCRAFT_TARGET_PATH | Select-Object FeatureName, @{N='State';E={$_.State.ToString()}}); \
+         ConvertTo-Json -InputObject $items -Depth 3 -Compress";
+    let json = run_powershell_script_with_env(
+        script,
+        &[("ISOCRAFT_TARGET_PATH", mount_dir.as_os_str())],
+        guard,
+    )
+    .await?;
     parse_ps_features_json(&json)
 }
 
@@ -208,13 +211,15 @@ pub async fn query_mounted_capabilities_list_tracked(
     mount_dir: &Path,
     guard: Option<&ProcessGuard>,
 ) -> Result<Vec<WindowsCapabilityInfo>, String> {
-    let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
-    let script = format!(
-        "Import-Module Dism -ErrorAction Stop; \
-         $items = @(Get-WindowsCapability -Path '{esc}' | Select-Object Name, @{{N='State';E={{$_.State.ToString()}}}}); \
-         ConvertTo-Json -InputObject $items -Depth 3 -Compress"
-    );
-    let json = run_powershell_script_tracked(&script, guard).await?;
+    let script = "Import-Module Dism -ErrorAction Stop; \
+         $items = @(Get-WindowsCapability -Path $env:ISOCRAFT_TARGET_PATH | Select-Object Name, @{N='State';E={$_.State.ToString()}}); \
+         ConvertTo-Json -InputObject $items -Depth 3 -Compress";
+    let json = run_powershell_script_with_env(
+        script,
+        &[("ISOCRAFT_TARGET_PATH", mount_dir.as_os_str())],
+        guard,
+    )
+    .await?;
     parse_ps_capabilities_json(&json)
 }
 

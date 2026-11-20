@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FluentModal, useAnimatedModalClose } from "../FluentModal";
 import {
   AlertTriangle,
   LayoutGrid,
@@ -46,36 +46,13 @@ export function AppsScreen({
   const [confirmProtected, setConfirmProtected] = useState<ProvisionedAppxInfo | null>(
     null
   );
-  const [closingConfirm, setClosingConfirm] = useState(false);
-  const confirmTimerRef = useRef<number | null>(null);
-
-  const requestCloseConfirm = useCallback(() => {
-    if (!confirmProtected || closingConfirm) return;
-    setClosingConfirm(true);
-    confirmTimerRef.current = window.setTimeout(() => {
-      setConfirmProtected(null);
-      setClosingConfirm(false);
-    }, 140);
-  }, [confirmProtected, closingConfirm]);
-
-  useEffect(() => {
-    return () => {
-      if (confirmTimerRef.current !== null) {
-        window.clearTimeout(confirmTimerRef.current);
-      }
-    };
+  const handleCloseConfirm = useCallback(() => {
+    setConfirmProtected(null);
   }, []);
-
-  useEffect(() => {
-    if (!confirmProtected) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        requestCloseConfirm();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmProtected, requestCloseConfirm]);
+  const { isClosing: closingConfirm, requestClose: requestCloseConfirm } =
+    useAnimatedModalClose(handleCloseConfirm, {
+      enabled: Boolean(confirmProtected),
+    });
 
   const removeSet = useMemo(
     () => new Set(appsQueue.removeFamilies),
@@ -214,8 +191,13 @@ export function AppsScreen({
                           {base}
                         </div>
                         <div className="text-[11.5px] font-mono text-text-secondary truncate">
-                          {item.packagePath} • deps: {item.dependencyPaths.length} •{" "}
-                          {item.skipLicense ? "SkipLicense" : "LicenseXML"}
+                          {item.packagePath} •{" "}
+                          {t("screens.apps.addedMeta", {
+                            count: item.dependencyPaths.length,
+                            license: item.skipLicense
+                              ? t("screens.apps.licenseSkipShort")
+                              : t("screens.apps.licenseXmlShort"),
+                          })}
                         </div>
                       </div>
                     </div>
@@ -299,18 +281,14 @@ export function AppsScreen({
         <AddAppxModal onAdd={onAddPackage} onClose={() => setIsAddOpen(false)} />
       )}
 
-      {confirmProtected &&
-        createPortal(
-          <div
-            onClick={(e) => {
-              if (e.target === e.currentTarget) requestCloseConfirm();
-            }}
-            className={`${closingConfirm ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
-          >
-            <div
-              className={`${closingConfirm ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden`}
-            >
-              <div className="p-5 flex items-start gap-3.5">
+      {confirmProtected && (
+        <FluentModal
+          isClosing={closingConfirm}
+          onRequestClose={requestCloseConfirm}
+          maxWidthClass="max-w-[440px]"
+          backdropClass="bg-black/50"
+        >
+          <div className="p-5 flex items-start gap-3.5">
                 <div className="w-9 h-9 rounded-full bg-status-warning-bg text-status-warning flex items-center justify-center shrink-0">
                   <AlertTriangle className="animate-fluent-icon-pop w-5 h-5" strokeWidth={1.75} />
                 </div>
@@ -352,9 +330,9 @@ export function AppsScreen({
                 </button>
               </div>
             </div>
-          </div>,
-          document.body
-        )}
+          </div>
+        </FluentModal>
+      )}
     </div>
   );
 }

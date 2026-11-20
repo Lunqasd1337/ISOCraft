@@ -7,10 +7,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_draft:
+        description: "Create GitHub Release as draft"
+        type: boolean
+        default: true
 
 concurrency:
   group: release-${{ github.event.release.tag_name || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -110,7 +115,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "ISOCraft v__VERSION__"
-          releaseDraft: false
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.release_draft != false }}
           prerelease: false
           generateReleaseNotes: true
           updaterJsonPreferNsis: true

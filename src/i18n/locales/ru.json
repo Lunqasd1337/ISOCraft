@@ -115,6 +115,7 @@
       },
       "editionsTitle": "Целевая редакция",
       "editionsHint": "Будет экспортирована только выбранная редакция; остальные редакции будут вырезаны при сборке.",
+      "editionFallback": "Редакция {{index}}",
       "indexLabel": "Индекс {{index}}",
       "sizeGb": "{{gb}} ГБ",
       "catalogLoading": "Загрузка каталога приложений и компонентов (read-only маунт)...",
@@ -143,6 +144,9 @@
       "removeAction": "Удалить",
       "keepAction": "Оставить",
       "removeFromQueue": "Убрать",
+      "addedMeta": "зависимостей: {{count}} • {{license}}",
+      "licenseSkipShort": "Без лицензии",
+      "licenseXmlShort": "XML-лицензия",
       "noMatches": "Нет приложений по текущему фильтру.",
       "protectConfirmTitle": "Удаление защищённого системного пакета",
       "protectConfirmDesc": "Пакет {{name}} отмечен как критический для Windows 11. Его удаление может нарушить работу Microsoft Store, winget, Безопасности Windows или встроенных приложений.",
@@ -296,6 +300,8 @@
       "statsBadge": "+{{set}} / -{{del}}",
       "syntaxErrorBadge": "Ошибка синтаксиса",
       "warningsBadge": "Предупр.: {{count}}",
+      "fileNotFound": "Файл не найден",
+      "rootKey": "(корень)",
       "scanError": "Не удалось разобрать .reg файл: {{error}}"
     },
     "files": {

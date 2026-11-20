@@ -39,6 +39,7 @@ export interface AppSettings {
 }
 
 export interface LogEntry {
+  id: number;
   timestamp: string;
   level: "info" | "warn" | "error" | string;
   message: string;

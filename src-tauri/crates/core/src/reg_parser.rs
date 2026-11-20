@@ -269,6 +269,11 @@ fn split_first_component(path: &str) -> (&str, &str) {
 }
 
 fn map_offline_key_path(raw_key: &str) -> KeyMapOutcome {
+    if raw_key.contains('\0') {
+        return KeyMapOutcome::Invalid(
+            "Registry key path contains an embedded NUL character".to_string(),
+        );
+    }
     let trimmed = raw_key.trim();
     if trimmed.is_empty() {
         return KeyMapOutcome::Invalid("Empty registry key path".to_string());
@@ -435,7 +440,42 @@ fn parse_hex_byte_list(raw: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn parse_value_rhs(rhs: &str) -> Result<Option<RegValueData>, String> {
+fn encode_ansi_or_utf8_to_utf16le(segment: &[u8], out: &mut Vec<u8>) {
+    if let Ok(s) = std::str::from_utf8(segment) {
+        for cu in s.encode_utf16() {
+            out.extend_from_slice(&cu.to_le_bytes());
+        }
+    } else {
+        for &b in segment {
+            out.extend_from_slice(&u16::from(b).to_le_bytes());
+        }
+    }
+}
+
+fn regedit4_bytes_to_utf16le(bytes: &[u8], double_null: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() * 2 + 4);
+    if double_null {
+        for seg in bytes.split(|&b| b == 0) {
+            if seg.is_empty() {
+                continue;
+            }
+            encode_ansi_or_utf8_to_utf16le(seg, &mut out);
+            out.extend_from_slice(&[0, 0]);
+        }
+        if out.is_empty() {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+        } else {
+            out.extend_from_slice(&[0, 0]);
+        }
+    } else {
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        encode_ansi_or_utf8_to_utf16le(&bytes[..end], &mut out);
+        out.extend_from_slice(&[0, 0]);
+    }
+    out
+}
+
+fn parse_value_rhs(rhs: &str, is_regedit4: bool) -> Result<Option<RegValueData>, String> {
     let trimmed = rhs.trim();
     if trimmed == "-" {
         return Ok(None);
@@ -475,13 +515,17 @@ fn parse_value_rhs(rhs: &str) -> Result<Option<RegValueData>, String> {
                 0 => RegValueData::None(bytes),
                 1 => RegValueData::Raw { reg_type: 1, bytes },
                 2 => {
-                    if bytes.len() % 2 != 0 {
-                        return Err(format!(
-                            "REG_EXPAND_SZ (hex(2)) byte count must be even, got {}",
-                            bytes.len()
-                        ));
+                    if is_regedit4 {
+                        RegValueData::ExpandSz(regedit4_bytes_to_utf16le(&bytes, false))
+                    } else {
+                        if bytes.len() % 2 != 0 {
+                            return Err(format!(
+                                "REG_EXPAND_SZ (hex(2)) byte count must be even, got {}",
+                                bytes.len()
+                            ));
+                        }
+                        RegValueData::ExpandSz(bytes)
                     }
-                    RegValueData::ExpandSz(bytes)
                 }
                 3 => RegValueData::Binary(bytes),
                 4 => {
@@ -496,13 +540,17 @@ fn parse_value_rhs(rhs: &str) -> Result<Option<RegValueData>, String> {
                     ]))
                 }
                 7 => {
-                    if bytes.len() % 2 != 0 {
-                        return Err(format!(
-                            "REG_MULTI_SZ (hex(7)) byte count must be even, got {}",
-                            bytes.len()
-                        ));
+                    if is_regedit4 {
+                        RegValueData::MultiSz(regedit4_bytes_to_utf16le(&bytes, true))
+                    } else {
+                        if bytes.len() % 2 != 0 {
+                            return Err(format!(
+                                "REG_MULTI_SZ (hex(7)) byte count must be even, got {}",
+                                bytes.len()
+                            ));
+                        }
+                        RegValueData::MultiSz(bytes)
                     }
-                    RegValueData::MultiSz(bytes)
                 }
                 11 => {
                     if bytes.len() != 8 {
@@ -536,6 +584,7 @@ pub fn parse_reg_content(content: &str) -> ParsedRegFile {
     let raw_lines: Vec<&str> = content.lines().collect();
     let mut idx = 0usize;
     let mut header_seen = false;
+    let mut is_regedit4 = false;
     let mut current_section: Option<MappedSection> = None;
     let mut in_unsupported_section = false;
 
@@ -549,10 +598,14 @@ pub fn parse_reg_content(content: &str) -> ParsedRegFile {
         }
 
         if !header_seen {
-            if line_trimmed.eq_ignore_ascii_case("Windows Registry Editor Version 5.00")
-                || line_trimmed.eq_ignore_ascii_case("REGEDIT4")
-            {
+            if line_trimmed.eq_ignore_ascii_case("Windows Registry Editor Version 5.00") {
                 header_seen = true;
+                is_regedit4 = false;
+                continue;
+            }
+            if line_trimmed.eq_ignore_ascii_case("REGEDIT4") {
+                header_seen = true;
+                is_regedit4 = true;
                 continue;
             }
             errors.push(format!(
@@ -672,7 +725,14 @@ pub fn parse_reg_content(content: &str) -> ParsedRegFile {
             continue;
         };
 
-        match parse_value_rhs(rhs) {
+        if value_name.contains('\0') {
+            errors.push(format!(
+                "Line {start_line_num}: Registry value name contains an embedded NUL character."
+            ));
+            continue;
+        }
+
+        match parse_value_rhs(rhs, is_regedit4) {
             Ok(Some(data)) => {
                 operations.push(ParsedRegOp {
                     line: start_line_num,
@@ -940,6 +1000,17 @@ Windows Registry Editor Version 5.00
 ";
         let p = parse_reg_content(bad_types);
         assert_eq!(p.errors.len(), 2);
+
+        let embedded_nul = "Windows Registry Editor Version 5.00\n\
+            [-HKLM\\SOFTWARE\\\0\\Test]\n\
+            [HKLM\\SOFTWARE\\Valid]\n\
+            \"Bad\0Name\"=dword:00000001\n";
+        let p_nul = parse_reg_content(embedded_nul);
+        assert_eq!(p_nul.errors.len(), 2);
+        assert!(!p_nul
+            .operations
+            .iter()
+            .any(|op| op.kind == ParsedOpKind::DeleteKey));
     }
 
     #[test]
@@ -982,5 +1053,33 @@ Windows Registry Editor Version 5.00
         assert_eq!(preview_r4.operations[0].hive, OfflineHive::DefaultUser);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn converts_regedit4_ansi_expand_and_multi_sz_to_utf16le() {
+        let reg = "REGEDIT4\r\n\
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\LegacyApp]\r\n\
+\"ExpandAnsi\"=hex(2):25,53,59,53,25,00\r\n\
+\"MultiAnsi\"=hex(7):41,00,42,00,00\r\n";
+
+        let parsed = parse_reg_content(reg);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.operations.len(), 3);
+        assert_eq!(
+            parsed.operations[1]
+                .value_data
+                .as_ref()
+                .unwrap()
+                .preview_string(),
+            "\"%SYS%\""
+        );
+        assert_eq!(
+            parsed.operations[2]
+                .value_data
+                .as_ref()
+                .unwrap()
+                .preview_string(),
+            "[A, B]"
+        );
     }
 }

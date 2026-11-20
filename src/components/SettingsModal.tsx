@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FluentModal, useAnimatedModalClose } from "./FluentModal";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -69,37 +69,13 @@ export function SettingsModal({
     downloadedBytes: number;
   }>({ percent: null, downloadedBytes: 0 });
   const [updateError, setUpdateError] = useState<string | null>(null);
-  const [isClosing, setIsClosing] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
 
   const isUpdateLocked =
     updateStatus === "downloading" || updateStatus === "installing";
 
-  const requestClose = useCallback(() => {
-    if (isUpdateLocked || isClosing) return;
-    setIsClosing(true);
-    closeTimerRef.current = window.setTimeout(() => {
-      onClose();
-    }, 140);
-  }, [isUpdateLocked, isClosing, onClose]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        requestClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [requestClose]);
+  const { isClosing, requestClose } = useAnimatedModalClose(onClose, {
+    locked: isUpdateLocked,
+  });
 
   useEffect(() => {
     let active = true;
@@ -289,17 +265,14 @@ export function SettingsModal({
     </div>
   );
 
-  return createPortal(
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) requestClose();
-      }}
-      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+  return (
+    <FluentModal
+      isClosing={isClosing}
+      onRequestClose={requestClose}
+      maxWidthClass="max-w-[600px]"
+      panelClassName="flex flex-col max-h-[85vh]"
     >
-      <div
-        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
-      >
-        {/* Header */}
+      {/* Header */}
         <div className="px-5 py-4 border-b border-border-subtle flex items-start justify-between">
           <div>
             <h2 className="text-[16px] font-semibold text-text-primary">
@@ -609,7 +582,6 @@ export function SettingsModal({
           </div>
         </div>
       </div>
-    </div>,
-    document.body
+    </FluentModal>
   );
 }

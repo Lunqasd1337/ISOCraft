@@ -289,7 +289,9 @@ export function ImageScreen({
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-[13.5px] font-semibold text-text-primary truncate">
-                              {ed.name || ed.editionId || `Edition ${ed.index}`}
+                              {ed.name ||
+                                ed.editionId ||
+                                t("screens.image.editionFallback", { index: ed.index })}
                             </span>
                             <span className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-subtle text-text-secondary shrink-0">
                               {t("screens.image.indexLabel", { index: ed.index })}
