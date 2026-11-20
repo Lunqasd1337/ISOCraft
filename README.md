@@ -74,7 +74,7 @@ npm run tauri build
 ## Обновления и лицензия
 
 - Проверка и установка подписанных обновлений встроены в окно **Настройки** (`tauri-plugin-updater` → `https://github.com/Lunqasd1337/ISOCraft/releases/latest/download/latest.json`).
-- Исходный код ISOCraft распространяется под лицензией [MIT](LICENSE). Сторонние утилиты, загружаемые скриптом `scripts/fetch-tools.ps1` (`wimlib-imagex`, `xorriso` и runtime-библиотеки MSYS2), распространяются под их собственными open-source лицензиями.
+- Исходный код ISOCraft распространяется под лицензией [MIT](LICENSE) (Copyright © 2026 Lunqasd1337). Сторонние утилиты, загружаемые скриптом `scripts/fetch-tools.ps1` (`wimlib-imagex`, `xorriso` и runtime-библиотеки MSYS2), распространяются под их собственными open-source лицензиями.
 
 ---
 
