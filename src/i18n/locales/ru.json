@@ -234,7 +234,7 @@
         "quickAll": "Все для {{version}}",
         "quickLcu": "Накопительные (LCU) {{version}}",
         "quickDotNet": ".NET Framework {{version}}",
-        "onlyWin11X64": "Только Windows 11 x64 (скрывать ARM64, x86, Server)",
+        "onlyWin11X64": "Только для install.wim x64 (скрывать ARM64, x86, Server, Dynamic Update)",
         "savePathLabel": "Папка загрузки:",
         "openCatalogWeb": "Открыть в браузере",
         "noResults": "По вашему запросу обновлений не найдено. Попробуйте изменить запрос или снять фильтр архитектуры.",

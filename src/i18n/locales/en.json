@@ -234,7 +234,7 @@
         "quickAll": "All for {{version}}",
         "quickLcu": "Cumulative (LCU) {{version}}",
         "quickDotNet": ".NET Framework {{version}}",
-        "onlyWin11X64": "Windows 11 x64 only (hide ARM64, x86, Server)",
+        "onlyWin11X64": "install.wim x64 only (hide ARM64, x86, Server, Dynamic Update)",
         "savePathLabel": "Download folder:",
         "openCatalogWeb": "Open in browser",
         "noResults": "No matching updates found. Try adjusting the search query or disabling the architecture filter.",

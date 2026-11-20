@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
 
@@ -11,13 +13,48 @@ export function CloseGuardModal({
   onForceStop,
 }: CloseGuardModalProps) {
   const { t } = useTranslation();
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
 
-  return (
-    <div className="animate-fluent-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="animate-fluent-modal w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden">
+  const requestKeepRunning = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      onKeepRunning();
+    }, 140);
+  }, [isClosing, onKeepRunning]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        requestKeepRunning();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [requestKeepRunning]);
+
+  return createPortal(
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) requestKeepRunning();
+      }}
+      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
+    >
+      <div
+        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden`}
+      >
         <div className="p-5 flex items-start gap-3.5">
           <div className="w-9 h-9 rounded-full bg-status-warning-bg text-status-warning flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" strokeWidth={1.75} />
+            <AlertTriangle className="animate-fluent-icon-pop w-5 h-5" strokeWidth={1.75} />
           </div>
           <div>
             <h3 className="text-[15px] font-semibold text-text-primary">
@@ -31,20 +68,21 @@ export function CloseGuardModal({
         <div className="px-5 py-3 border-t border-border-subtle bg-sidebar flex items-center justify-end gap-2">
           <button
             type="button"
-            onClick={onKeepRunning}
-            className="px-3.5 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-colors"
+            onClick={requestKeepRunning}
+            className="px-3.5 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.98]"
           >
             {t("closeGuard.keepRunning")}
           </button>
           <button
             type="button"
             onClick={onForceStop}
-            className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold bg-status-danger text-white hover:opacity-90 transition-opacity"
+            className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold bg-status-danger text-white hover:opacity-90 transition-all duration-150 active:scale-[0.98]"
           >
             {t("closeGuard.forceStop")}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

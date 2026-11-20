@@ -245,7 +245,7 @@ export function FilesScreen({
       ) : (
         <>
           {scanError && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
+            <div className="animate-fluent-item flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
               <div className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                 <span className="break-words">{scanError}</span>
@@ -303,7 +303,7 @@ export function FilesScreen({
                 const presets = item.target === "installWim" ? INSTALL_PRESETS : ISO_PRESETS;
 
                 return (
-                  <div key={item.id} className="px-4 py-3.5 space-y-3">
+                  <div key={item.id} className="animate-fluent-item px-4 py-3.5 space-y-3">
                     {/* Top row: Icon, name, badges, source path, remove */}
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3 min-w-0">
@@ -465,14 +465,14 @@ export function FilesScreen({
                       </div>
 
                       {validation.errorKey && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
+                        <div className="animate-fluent-item flex items-center gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
                           <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                           <span>{t(`screens.files.${validation.errorKey}`)}</span>
                         </div>
                       )}
 
                       {item.target === "isoRoot" && !canTargetIso && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-status-warning-bg text-status-warning text-[12px]">
+                        <div className="animate-fluent-item flex items-center gap-2 px-3 py-2 rounded-md bg-status-warning-bg text-status-warning text-[12px]">
                           <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                           <span>{t("screens.files.isoRootSkippedWarning")}</span>
                         </div>

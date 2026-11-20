@@ -154,7 +154,7 @@ export function RegistryScreen({
       ) : (
         <>
           {scanError && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
+            <div className="animate-fluent-item flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
               <div className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                 <span className="break-words">{scanError}</span>
@@ -197,7 +197,7 @@ export function RegistryScreen({
                     <div
                       key={item.path}
                       onClick={() => setSelectedPath(item.path)}
-                      className={`px-4 py-3 flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                      className={`animate-fluent-item px-4 py-3 flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                         isSelected ? "bg-subtle" : "hover:bg-subtle"
                       } ${!item.enabled ? "opacity-60" : ""}`}
                     >
@@ -292,7 +292,10 @@ export function RegistryScreen({
 
               {/* Dry-run Preview panel */}
               {activeItem && (
-                <div className="bg-surface border border-border-subtle rounded-lg overflow-hidden">
+                <div
+                  key={activeItem.path}
+                  className="animate-fluent-item bg-surface border border-border-subtle rounded-lg overflow-hidden"
+                >
                   <div className="px-4 py-3 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2 bg-sidebar">
                     <div className="text-[13.5px] font-semibold text-text-primary">
                       {t("screens.registry.previewTitle")} —{" "}

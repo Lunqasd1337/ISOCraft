@@ -411,6 +411,7 @@ pub fn is_compatible_win11_x64_catalog_entry(title: &str, products: &str) -> boo
         || combined.contains("x86-based")
         || has_standalone_x86_token(&combined)
         || combined.contains("windows server")
+        || combined.contains("dynamic update")
         || combined.contains("itanium")
         || combined.contains("ia64")
     {
@@ -1343,6 +1344,15 @@ mod tests {
               <td id="cccccccc-dddd-eeee-ffff-000000000000_C5_R3">n/a</td>
               <td id="cccccccc-dddd-eeee-ffff-000000000000_C6_R3"><span id="cccccccc-dddd-eeee-ffff-000000000000_size">400 MB</span></td>
             </tr>
+            <tr id="dddddddd-eeee-ffff-0000-111111111111_R4">
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C0_R4"></td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C1_R4"><a>2026-11 Safe OS Dynamic Update for Windows 11, version 26H2 for x64-based Systems (KB5133853)</a></td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C2_R4">Windows Safe OS Dynamic Update, Windows 10 and later Dynamic Update</td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C3_R4">Critical Updates</td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C4_R4">11/19/2026</td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C5_R4">n/a</td>
+              <td id="dddddddd-eeee-ffff-0000-111111111111_C6_R4"><span id="dddddddd-eeee-ffff-0000-111111111111_size">247.3 MB</span></td>
+            </tr>
           </table>
         </td></tr></table></body></html>
         "#;
@@ -1362,7 +1372,7 @@ mod tests {
         assert_eq!(filtered[0].size_bytes, 685_975_552);
 
         let unfiltered = parse_catalog_search_html(html, false);
-        assert_eq!(unfiltered.len(), 4);
+        assert_eq!(unfiltered.len(), 5);
     }
 
     #[test]

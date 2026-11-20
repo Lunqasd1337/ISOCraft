@@ -139,7 +139,7 @@ export function DriversScreen({
       ) : (
         <>
           {scanError && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
+            <div className="animate-fluent-item flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-status-danger-bg text-status-danger text-[12.5px]">
               <div className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                 <span className="break-words">{scanError}</span>
@@ -185,7 +185,7 @@ export function DriversScreen({
               {driversQueue.items.map((item) => {
                 const baseName = item.path.split(/[\\/]/).pop() || item.path;
                 return (
-                  <div key={item.path} className="px-4 py-3 space-y-2.5">
+                  <div key={item.path} className="animate-fluent-item px-4 py-3 space-y-2.5">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3 min-w-0">
                         {item.isDirectory ? (

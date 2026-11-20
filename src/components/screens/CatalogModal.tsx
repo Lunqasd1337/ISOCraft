@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   ExternalLink,
   FolderOpen,
@@ -79,8 +82,57 @@ export function CatalogModal({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
   const [downloadedByUpdate, setDownloadedByUpdate] = useState<Record<string, string[]>>({});
+  const [isClosing, setIsClosing] = useState(false);
+  const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
 
   const searchSeqRef = useRef(0);
+  const closeTimerRef = useRef<number | null>(null);
+  const versionMenuRef = useRef<HTMLDivElement>(null);
+
+  const requestClose = useCallback(() => {
+    if (downloadingId || isClosing) return;
+    setIsVersionMenuOpen(false);
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      onClose();
+    }, 140);
+  }, [downloadingId, isClosing, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isVersionMenuOpen) {
+          setIsVersionMenuOpen(false);
+          return;
+        }
+        requestClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isVersionMenuOpen, requestClose]);
+
+  useEffect(() => {
+    if (!isVersionMenuOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (
+        versionMenuRef.current &&
+        !versionMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsVersionMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [isVersionMenuOpen]);
 
   const normalizedWorkspace = workspaceDir.trim().replace(/[\\/]+$/, "");
   const updatesDownloadDir = normalizedWorkspace
@@ -230,7 +282,7 @@ export function CatalogModal({
     },
     {
       label: t("screens.updates.catalogModal.quickLcu", { version: targetVersion }),
-      q: `Cumulative Update for Windows 11 Version ${targetVersion} for x64`,
+      q: `Cumulative Update Windows 11 Version ${targetVersion} for x64-based Systems`,
     },
     {
       label: t("screens.updates.catalogModal.quickDotNet", { version: targetVersion }),
@@ -238,9 +290,16 @@ export function CatalogModal({
     },
   ];
 
-  return (
-    <div className="animate-fluent-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="animate-fluent-modal w-full max-w-[820px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
+      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+    >
+      <div
+        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[820px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
+      >
         {/* Header */}
         <div className="px-5 py-4 border-b border-border-subtle flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -255,7 +314,7 @@ export function CatalogModal({
             <button
               type="button"
               onClick={handleOpenExternalCatalog}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-surface border border-border-subtle hover:bg-subtle text-text-secondary hover:text-text-primary transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-surface border border-border-subtle hover:bg-subtle text-text-secondary hover:text-text-primary transition-all duration-150 active:scale-[0.98]"
             >
               <ExternalLink className="w-3.5 h-3.5" strokeWidth={1.6} />
               <span>{t("screens.updates.catalogModal.openCatalogWeb")}</span>
@@ -263,8 +322,8 @@ export function CatalogModal({
             <button
               type="button"
               disabled={Boolean(downloadingId)}
-              onClick={onClose}
-              className="w-7 h-7 rounded-md flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={requestClose}
+              className="w-7 h-7 rounded-md flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <X className="w-4 h-4" strokeWidth={1.75} />
             </button>
@@ -274,19 +333,72 @@ export function CatalogModal({
         {/* Search & Filters */}
         <div className="px-5 py-3.5 border-b border-border-subtle space-y-2.5 bg-sidebar">
           <form onSubmit={handleSubmitSearch} className="flex items-center gap-2">
-            <select
-              aria-label={t("screens.updates.catalogModal.targetVersionLabel")}
-              value={targetVersion}
-              disabled={searching || Boolean(downloadingId)}
-              onChange={(e) => handleChangeTargetVersion(e.target.value)}
-              className="px-2.5 py-1.5 rounded-md bg-canvas border border-border-subtle text-[13px] font-medium text-text-primary focus:outline-none focus:border-accent disabled:opacity-60 shrink-0"
-            >
-              {WIN11_VERSIONS.map((ver) => (
-                <option key={ver} value={ver}>
-                  {ver}
-                </option>
-              ))}
-            </select>
+            <div ref={versionMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                aria-label={t("screens.updates.catalogModal.targetVersionLabel")}
+                aria-haspopup="listbox"
+                aria-expanded={isVersionMenuOpen}
+                disabled={searching || Boolean(downloadingId)}
+                onClick={() => setIsVersionMenuOpen((v) => !v)}
+                className={`inline-flex items-center justify-between gap-2 min-w-[82px] px-3 py-1.5 rounded-md bg-canvas border text-[13px] font-semibold text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed ${
+                  isVersionMenuOpen ? "border-accent" : "border-border-subtle"
+                }`}
+              >
+                <span>{targetVersion}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                    isVersionMenuOpen ? "rotate-180 text-accent" : "text-text-secondary"
+                  }`}
+                  strokeWidth={1.8}
+                />
+              </button>
+
+              {isVersionMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-label={t("screens.updates.catalogModal.targetVersionLabel")}
+                  className="animate-fluent-item absolute left-0 top-full mt-1.5 z-30 min-w-[112px] p-1 rounded-lg bg-surface border border-border-subtle shadow-xl space-y-0.5"
+                >
+                  {WIN11_VERSIONS.map((ver) => {
+                    const selected = ver === targetVersion;
+                    return (
+                      <button
+                        key={ver}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => {
+                          setIsVersionMenuOpen(false);
+                          if (ver !== targetVersion) {
+                            handleChangeTargetVersion(ver);
+                          }
+                        }}
+                        className={`relative w-full flex items-center justify-between gap-2 pl-3 pr-2.5 py-1.5 rounded-md text-[12.5px] transition-colors ${
+                          selected
+                            ? "bg-subtle text-text-primary font-semibold"
+                            : "text-text-secondary hover:text-text-primary hover:bg-subtle font-normal"
+                        }`}
+                      >
+                        {selected && (
+                          <span
+                            className="animate-fluent-pill absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[14px] rounded-full bg-accent"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span>{ver}</span>
+                        {selected && (
+                          <Check
+                            className="w-3.5 h-3.5 text-accent animate-fluent-icon-pop"
+                            strokeWidth={2}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="relative flex-1">
               <Search
                 className="w-4 h-4 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -304,7 +416,7 @@ export function CatalogModal({
             <button
               type="submit"
               disabled={searching || Boolean(downloadingId) || !query.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
               {searching ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={1.8} />
@@ -325,7 +437,7 @@ export function CatalogModal({
                     type="button"
                     disabled={searching || Boolean(downloadingId)}
                     onClick={() => handleQuickPreset(chip.q)}
-                    className={`px-2.5 py-1 rounded-md text-[11.5px] font-medium border transition-colors disabled:opacity-50 ${
+                    className={`px-2.5 py-1 rounded-md text-[11.5px] font-medium border transition-all duration-150 active:scale-[0.98] disabled:opacity-50 ${
                       active
                         ? "bg-accent text-accent-fg border-accent"
                         : "bg-surface text-text-secondary border-border-subtle hover:bg-subtle hover:text-text-primary"
@@ -358,7 +470,7 @@ export function CatalogModal({
 
         {/* Active Download Progress Banner */}
         {downloadingId && (
-          <div className="px-5 py-3 border-b border-border-subtle bg-canvas space-y-2">
+          <div className="animate-fluent-item px-5 py-3 border-b border-border-subtle bg-canvas space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[12.5px] font-semibold text-text-primary">
@@ -386,7 +498,7 @@ export function CatalogModal({
                   type="button"
                   disabled={cancelling}
                   onClick={handleCancelDownload}
-                  className="px-2.5 py-1 rounded-md text-[12px] font-medium bg-status-danger-bg text-status-danger hover:opacity-90 disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-md text-[12px] font-medium bg-status-danger-bg text-status-danger hover:opacity-90 transition-all duration-150 active:scale-[0.98] disabled:opacity-50"
                 >
                   {cancelling
                     ? t("screens.updates.catalogModal.cancelling")
@@ -395,16 +507,16 @@ export function CatalogModal({
               </div>
             </div>
             <div className="h-1.5 w-full rounded-full bg-subtle overflow-hidden">
-              <div
-                className="h-full bg-accent transition-all duration-150"
-                style={{
-                  width: `${
-                    progress && progress.totalBytes > 0
-                      ? Math.min(100, Math.max(2, progress.percent))
-                      : 15
-                  }%`,
-                }}
-              />
+              {progress && progress.totalBytes > 0 ? (
+                <div
+                  className="h-full bg-accent transition-all duration-200 ease-out"
+                  style={{
+                    width: `${Math.min(100, Math.max(2, progress.percent))}%`,
+                  }}
+                />
+              ) : (
+                <div className="h-full w-2/5 rounded-full bg-accent animate-fluent-indeterminate" />
+              )}
             </div>
           </div>
         )}
@@ -413,7 +525,7 @@ export function CatalogModal({
         {(searchError || downloadError || downloadSuccess) && (
           <div className="px-5 pt-3 space-y-2">
             {searchError && (
-              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
+              <div className="animate-fluent-item flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
                 <div className="flex items-center gap-2 min-w-0">
                   <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                   <span className="break-words">{searchError}</span>
@@ -428,7 +540,7 @@ export function CatalogModal({
               </div>
             )}
             {downloadError && (
-              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
+              <div className="animate-fluent-item flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
                 <div className="flex items-center gap-2 min-w-0">
                   <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                   <span className="break-words">{downloadError}</span>
@@ -443,9 +555,9 @@ export function CatalogModal({
               </div>
             )}
             {downloadSuccess && (
-              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-success-bg text-status-success text-[12px]">
+              <div className="animate-fluent-item flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-status-success-bg text-status-success text-[12px]">
                 <div className="flex items-center gap-2 min-w-0">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" strokeWidth={1.75} />
+                  <CheckCircle2 className="w-4 h-4 shrink-0 animate-fluent-icon-pop" strokeWidth={1.75} />
                   <span className="break-words">{downloadSuccess}</span>
                 </div>
                 <button
@@ -463,24 +575,25 @@ export function CatalogModal({
         {/* Results List */}
         <div className="flex-1 min-h-[260px] overflow-y-auto p-5">
           {searching ? (
-            <div className="h-full min-h-[220px] flex flex-col items-center justify-center gap-2.5 text-text-secondary text-[13px]">
+            <div className="animate-fluent-item h-full min-h-[220px] flex flex-col items-center justify-center gap-2.5 text-text-secondary text-[13px]">
               <Loader2 className="w-5 h-5 animate-spin text-accent" strokeWidth={1.8} />
               <span>{t("screens.updates.catalogModal.searching")}</span>
             </div>
           ) : hasSearched && results.length === 0 ? (
-            <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-text-secondary">
+            <div className="animate-fluent-item h-full min-h-[220px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-text-secondary">
               {t("screens.updates.catalogModal.noResults")}
             </div>
           ) : (
             <div className="border border-border-subtle rounded-lg divide-y divide-border-subtle overflow-hidden">
-              {results.map((entry) => {
+              {results.map((entry, index) => {
                 const isThisDownloading = downloadingId === entry.updateId;
                 const queued = isEntryQueued(entry);
 
                 return (
                   <div
                     key={entry.updateId}
-                    className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-subtle transition-colors"
+                    style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+                    className="animate-fluent-item px-4 py-3 flex items-center justify-between gap-4 hover:bg-subtle transition-colors"
                   >
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -493,7 +606,7 @@ export function CatalogModal({
                           {entry.title}
                         </span>
                         {queued && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-status-success-bg text-status-success shrink-0">
+                          <span className="animate-fluent-icon-pop inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-status-success-bg text-status-success shrink-0">
                             <CheckCircle2 className="w-3 h-3" strokeWidth={1.8} />
                             {t("screens.updates.catalogModal.queuedBadge")}
                           </span>
@@ -518,7 +631,7 @@ export function CatalogModal({
                         type="button"
                         disabled={Boolean(downloadingId)}
                         onClick={() => handleDownload(entry)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isThisDownloading ? (
                           <>
@@ -548,13 +661,14 @@ export function CatalogModal({
           <button
             type="button"
             disabled={Boolean(downloadingId)}
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={requestClose}
+            className="px-4 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t("screens.updates.catalogModal.close")}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

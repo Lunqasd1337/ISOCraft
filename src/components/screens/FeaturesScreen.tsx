@@ -213,7 +213,7 @@ export function FeaturesScreen({
       />
 
       {catalogLoading && (
-        <div className="bg-surface border border-border-subtle rounded-lg px-6 py-10 flex flex-col items-center gap-3 text-center">
+        <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-6 py-10 flex flex-col items-center gap-3 text-center">
           <Loader2 className="w-6 h-6 animate-spin text-accent" strokeWidth={1.7} />
           <div className="text-[13.5px] font-medium text-text-primary">
             {t("screens.features.loading")}
@@ -395,11 +395,14 @@ export function FeaturesScreen({
           {/* List */}
           {tab === "optional" ? (
             filteredFeatures.length === 0 ? (
-              <div className="bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
+              <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
                 {t("screens.features.noMatches")}
               </div>
             ) : (
-              <div className="bg-surface border border-border-subtle rounded-lg divide-y divide-border-subtle overflow-hidden">
+              <div
+                key="tab-optional"
+                className="animate-fluent-item bg-surface border border-border-subtle rounded-lg divide-y divide-border-subtle overflow-hidden"
+              >
                 {filteredFeatures.map((feat) => {
                   const baseOn = isInitiallyEnabledFeature(feat.state);
                   const pendingOn = enableFeatSet.has(feat.name);
@@ -410,7 +413,7 @@ export function FeaturesScreen({
                   return (
                     <div
                       key={feat.name}
-                      className={`px-4 py-2.5 flex items-center justify-between gap-4 ${
+                      className={`px-4 py-2.5 flex items-center justify-between gap-4 transition-colors ${
                         changed ? "bg-subtle" : "hover:bg-subtle"
                       }`}
                     >
@@ -428,7 +431,7 @@ export function FeaturesScreen({
                           </span>
                           {changed && (
                             <span
-                              className={`px-1.5 py-0.5 rounded font-medium ${
+                              className={`animate-fluent-icon-pop px-1.5 py-0.5 rounded font-medium ${
                                 effectiveOn
                                   ? "bg-status-success-bg text-status-success"
                                   : "bg-status-warning-bg text-status-warning"
@@ -452,11 +455,14 @@ export function FeaturesScreen({
               </div>
             )
           ) : filteredCapabilities.length === 0 ? (
-            <div className="bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
+            <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
               {t("screens.features.noMatches")}
             </div>
           ) : (
-            <div className="bg-surface border border-border-subtle rounded-lg divide-y divide-border-subtle overflow-hidden">
+            <div
+              key="tab-capabilities"
+              className="animate-fluent-item bg-surface border border-border-subtle rounded-lg divide-y divide-border-subtle overflow-hidden"
+            >
               {filteredCapabilities.map((cap) => {
                 const baseOn = isInitiallyInstalledCap(cap.state);
                 const pendingOn = addCapSet.has(cap.name);
@@ -467,7 +473,7 @@ export function FeaturesScreen({
                 return (
                   <div
                     key={cap.name}
-                    className={`px-4 py-2.5 flex items-center justify-between gap-4 ${
+                    className={`px-4 py-2.5 flex items-center justify-between gap-4 transition-colors ${
                       changed ? "bg-subtle" : "hover:bg-subtle"
                     }`}
                   >
@@ -485,7 +491,7 @@ export function FeaturesScreen({
                         </span>
                         {changed && (
                           <span
-                            className={`px-1.5 py-0.5 rounded font-medium ${
+                            className={`animate-fluent-icon-pop px-1.5 py-0.5 rounded font-medium ${
                               effectiveOn
                                 ? "bg-status-success-bg text-status-success"
                                 : "bg-status-warning-bg text-status-warning"

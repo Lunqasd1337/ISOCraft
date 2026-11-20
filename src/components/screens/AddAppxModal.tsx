@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -24,6 +25,34 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
   const [licensePath, setLicensePath] = useState("");
   const [stubOption, setStubOption] = useState<StubOption>("None");
   const [regionAll, setRegionAll] = useState(true);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      onClose();
+    }, 140);
+  }, [isClosing, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        requestClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [requestClose]);
 
   const handleBrowsePackage = async () => {
     const selected = await open({
@@ -102,23 +131,30 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
       regionAll,
       stubOption,
     });
-    onClose();
+    requestClose();
   };
 
   const canSubmit =
     packagePath.trim().length > 0 && (skipLicense || licensePath.trim().length > 0);
 
-  return (
-    <div className="animate-fluent-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="animate-fluent-modal w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
+      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+    >
+      <div
+        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
+      >
         <div className="px-5 py-4 border-b border-border-subtle flex items-center justify-between">
           <h2 className="text-[15.5px] font-semibold text-text-primary">
             {t("screens.apps.modal.title")}
           </h2>
           <button
             type="button"
-            onClick={onClose}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle"
+            onClick={requestClose}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle transition-colors"
           >
             <X className="w-4 h-4" strokeWidth={1.75} />
           </button>
@@ -299,8 +335,8 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
         <div className="px-5 py-3.5 border-t border-border-subtle bg-sidebar flex items-center justify-end gap-2">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle"
+            onClick={requestClose}
+            className="px-4 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.98]"
           >
             {t("screens.apps.cancel")}
           </button>
@@ -308,12 +344,13 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg disabled:opacity-50"
+            className="px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-all duration-150 active:scale-[0.98] disabled:opacity-50"
           >
             {t("screens.apps.modal.add")}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
