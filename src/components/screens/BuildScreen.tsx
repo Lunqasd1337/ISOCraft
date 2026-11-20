@@ -553,10 +553,6 @@ export function BuildScreen({
                 })}
               </div>
 
-              <div className="px-3 py-2 rounded-md bg-canvas border border-border-subtle text-[12px] font-mono text-text-secondary break-all">
-                {buildProgress?.message ?? "..."}
-              </div>
-
               {diagStatus && (
                 <div
                   className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md text-[12px] ${
@@ -575,7 +571,6 @@ export function BuildScreen({
                   </button>
                 </div>
               )}
-
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
