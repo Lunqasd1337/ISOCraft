@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Downloaded open-source binaries (fetched via scripts/fetch-tools.ps1)
+src-tauri/resources/bin/
+
+# Logs & temp
+*.log
+.tmp/
+
+# Signing keys & local secrets (never commit)
+*.key
+*.key.pub
+.env
+.env.*
