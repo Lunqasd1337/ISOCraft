@@ -1,44 +1,44 @@
-name: "Compatibility Issue / Совместимость образа или пакетов"
-description: "Report compatibility issues with specific Windows 11 builds, UUP dump ISOs, Checkpoint CU updates, or .reg/autounattend files"
+name: "Совместимость образа или пакетов / Compatibility Issue"
+description: "Проблемы со сборками Windows 11, UUP dump ISO, Checkpoint CU, .reg или autounattend.xml / Compatibility issues with specific Windows 11 builds, UUP dump, Checkpoint CU, or .reg/autounattend files"
 title: "[Compat]: "
 labels: ["compatibility"]
 body:
   - type: dropdown
     id: source_type
     attributes:
-      label: Image Source / Источник образа
+      label: "Источник образа / Image Source"
       options:
-        - "Official Microsoft ISO (Media Creation Tool / TechBench)"
+        - "Официальный ISO Microsoft (Official Microsoft ISO)"
         - "UUP dump ISO"
-        - "Custom WIM / ESD"
-        - "Other"
+        - "Пользовательский WIM / ESD (Custom WIM / ESD)"
+        - "Другое (Other)"
     validations:
       required: true
 
   - type: input
     id: build_info
     attributes:
-      label: Windows 11 Build & Edition / Сборка и редакция Windows 11
-      placeholder: "e.g. 24H2 26100.1742 Pro x64 (ru-RU)"
+      label: "Сборка и редакция Windows 11 / Windows 11 Build & Edition"
+      placeholder: "например / e.g. 24H2 26100.1742 Pro x64 (ru-RU)"
     validations:
       required: true
 
   - type: checkboxes
     id: components
     attributes:
-      label: Involved Components / Задействованные компоненты
+      label: "Задействованные компоненты / Involved Components"
       options:
         - label: "24H2+ Checkpoint CU + LCU (.msu / .cab)"
         - label: ".NET Framework 3.5 (sources\\sxs)"
-        - label: "Appx / MSIX dependencies"
-        - label: "boot.wim (Index 2) drivers"
-        - label: "Offline .reg (TrustedInstaller / NTUSER.DAT / CurrentControlSet)"
-        - label: "autounattend.xml / UEFI or Legacy BIOS boot"
+        - label: "Зависимости Appx / MSIX (Appx / MSIX dependencies)"
+        - label: "Драйверы в boot.wim Index 2 (boot.wim drivers)"
+        - label: "Оффлайн .reg (TrustedInstaller / NTUSER.DAT / CurrentControlSet)"
+        - label: "autounattend.xml / загрузка UEFI или Legacy BIOS (UEFI / BIOS boot)"
 
   - type: textarea
     id: details
     attributes:
-      label: Details & Logs / Подробности и логи
-      description: Explain what failed (e.g. DISM error code, VM boot error) and attach `isocraft-diagnostics.log` if possible.
+      label: "Подробности и логи / Details & Logs"
+      description: "Опишите, что именно не сработало (код ошибки DISM, ошибка загрузки в VM), и приложите isocraft-diagnostics.log / Explain what failed (DISM error code, VM boot error) and attach isocraft-diagnostics.log."
     validations:
       required: true
