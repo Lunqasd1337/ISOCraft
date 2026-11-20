@@ -388,9 +388,11 @@ fn import_preset(
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    const ALLOWED_URLS: [&str; 2] = [
+    const ALLOWED_URLS: [&str; 4] = [
         "https://www.microsoft.com/software-download/windows11",
         "https://uupdump.net/",
+        "https://github.com/Lunqasd1337/ISOCraft",
+        "https://github.com/Lunqasd1337/ISOCraft/releases",
     ];
     if !ALLOWED_URLS.contains(&url.as_str()) {
         return Err("Unsupported external URL.".to_string());

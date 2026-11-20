@@ -410,7 +410,7 @@ export function SettingsModal({
                   type="button"
                   onClick={() =>
                     invoke("open_external_url", { url: GITHUB_RELEASES_URL }).catch(
-                      () => {}
+                      (err) => setError(String(err))
                     )
                   }
                   className="inline-flex items-center gap-1 px-2 py-1 rounded text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-subtle transition-colors"
