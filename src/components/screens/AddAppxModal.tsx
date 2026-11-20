@@ -319,7 +319,6 @@ export function AddAppxModal({ onAdd, onClose }: AddAppxModalProps) {
             {t("screens.apps.modal.add")}
           </button>
         </div>
-      </div>
     </FluentModal>
   );
 }

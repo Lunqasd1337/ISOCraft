@@ -329,8 +329,6 @@ export function AppsScreen({
                   {t("screens.apps.confirmRemoveAnyway")}
                 </button>
               </div>
-            </div>
-          </div>
         </FluentModal>
       )}
     </div>

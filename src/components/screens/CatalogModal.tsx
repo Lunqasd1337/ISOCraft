@@ -637,7 +637,6 @@ export function CatalogModal({
             {t("screens.updates.catalogModal.close")}
           </button>
         </div>
-      </div>
     </FluentModal>
   );
 }

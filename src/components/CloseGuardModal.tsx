@@ -51,7 +51,6 @@ export function CloseGuardModal({
             {t("closeGuard.forceStop")}
           </button>
         </div>
-      </div>
     </FluentModal>
   );
 }

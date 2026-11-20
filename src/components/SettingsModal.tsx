@@ -581,7 +581,6 @@ export function SettingsModal({
             </button>
           </div>
         </div>
-      </div>
     </FluentModal>
   );
 }
