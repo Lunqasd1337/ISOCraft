@@ -20,8 +20,8 @@ use isocraft_core::files::{
     validate_file_injection_item, FileScanResult, FileTarget, FilesBuildPlan,
 };
 use isocraft_core::image::{
-    extract_iso_to_workspace, inspect_image as core_inspect_image, ImageInspectionResult,
-    SourceKind,
+    clear_readonly_recursive, extract_iso_to_workspace, inspect_image as core_inspect_image,
+    ImageInspectionResult, SourceKind,
 };
 use isocraft_core::iso::{
     build_bootable_iso, validate_autounattend as core_validate_autounattend,
@@ -42,8 +42,9 @@ use isocraft_core::updates::{
     UpdateScanInfo, UpdatesBuildPlan,
 };
 use isocraft_core::wim::{
-    export_single_edition, mount_wim, package_install_image, recover_workspace_async, unmount_wim,
-    InstallOutputFormat,
+    export_single_edition, mount_wim, package_install_image, package_install_image_to_path,
+    parse_dism_progress, parse_wimlib_progress, read_workspace_state, recover_workspace_async,
+    unmount_wim, InstallOutputFormat,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -135,6 +136,79 @@ fn emit_progress(
         message: message.into(),
     };
     let _ = app.emit("build-progress", &payload);
+}
+
+#[derive(Clone, Copy)]
+enum ProgressTool {
+    Dism,
+    Wimlib,
+}
+
+fn log_with_progress(
+    state: &AppState,
+    app: &AppHandle,
+    step: u8,
+    phase_key: &str,
+    start_pct: f32,
+    end_pct: f32,
+    tool: ProgressTool,
+    last_pct: &mut f32,
+    line: &str,
+) {
+    log_and_emit(state, app, "info", line);
+    let parsed = match tool {
+        ProgressTool::Dism => parse_dism_progress(line),
+        ProgressTool::Wimlib => parse_wimlib_progress(line),
+    };
+    if let Some(sub_pct) = parsed {
+        let mapped = start_pct + (end_pct - start_pct) * (sub_pct / 100.0);
+        if mapped >= *last_pct + 0.5 || (sub_pct >= 100.0 && mapped > *last_pct) {
+            *last_pct = mapped;
+            emit_progress(app, step, 9, phase_key, mapped, line.trim());
+        }
+    }
+}
+
+async fn cleanup_session_dir_if_clean(
+    state: &AppState,
+    app: &AppHandle,
+    workspace_dir: &PathBuf,
+    session_dir: &PathBuf,
+) {
+    let ws = read_workspace_state(workspace_dir);
+    if !ws.active_mounts.is_empty() || !ws.loaded_hives.is_empty() {
+        log_and_emit(
+            state,
+            app,
+            "warn",
+            "Skipping session_current cleanup because active WIM mounts or registry hives remain.",
+        );
+        return;
+    }
+    if !session_dir.exists() {
+        return;
+    }
+    let dir_clone = session_dir.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let _ = clear_readonly_recursive(&dir_clone);
+        std::fs::remove_dir_all(&dir_clone)
+    })
+    .await;
+    match res {
+        Ok(Ok(())) => log_and_emit(state, app, "info", "Cleaned up temporary session_current workspace."),
+        Ok(Err(e)) => log_and_emit(
+            state,
+            app,
+            "warn",
+            format!("Could not fully clean session_current: {e}"),
+        ),
+        Err(e) => log_and_emit(
+            state,
+            app,
+            "warn",
+            format!("Session cleanup task failed: {e}"),
+        ),
+    }
 }
 
 #[tauri::command]
@@ -295,7 +369,7 @@ async fn load_image_catalog(
     .map(PathBuf::from)
     .ok_or_else(|| "wimlib-imagex.exe not found.".to_string())?;
 
-    state.process_guard.set_busy(true);
+    let _busy = state.process_guard.enter_busy();
     let res = core_load_catalog(
         &dism_path,
         &wimlib_path,
@@ -308,7 +382,7 @@ async fn load_image_catalog(
         |msg| log_and_emit(&state, &app, "info", msg),
     )
     .await;
-    state.process_guard.set_busy(false);
+    drop(_busy);
 
     if let Err(ref e) = res {
         log_and_emit(&state, &app, "error", format!("Catalog load failed: {e}"));
@@ -466,7 +540,7 @@ async fn start_build(
         validate_file_injection_item(item)?;
     }
 
-    state.process_guard.set_busy(true);
+    let _busy = state.process_guard.enter_busy();
     let workspace_dir = PathBuf::from(&settings.workspace_dir);
     let session_dir = workspace_dir.join("session_current");
     let iso_root = session_dir.join("iso_root");
@@ -528,17 +602,30 @@ async fn start_build(
             2,
             9,
             "step_export_edition",
-            18.0,
+            16.0,
             format!("Exporting selected edition (Index {})...", config.selected_index),
         );
 
+        let mut step2_pct = 16.0f32;
         export_single_edition(
             &wimlib,
             &src_install_path,
             config.selected_index,
             &work_wim,
             Some(&state.process_guard),
-            |msg| log_and_emit(&state, &app, "info", msg),
+            |msg| {
+                log_with_progress(
+                    &state,
+                    &app,
+                    2,
+                    "step_export_edition",
+                    16.0,
+                    26.0,
+                    ProgressTool::Wimlib,
+                    &mut step2_pct,
+                    msg,
+                )
+            },
         )
         .await?;
 
@@ -552,11 +639,13 @@ async fn start_build(
                 3,
                 9,
                 "step_mount_rw",
-                28.0,
+                26.0,
                 "Mounting WIM image(s) (Read-Write)...",
             );
 
             if needs_install_rw_mount {
+                let mut step3_pct = 26.0f32;
+                let install_end = if needs_boot_wim_mount { 32.0 } else { 34.0 };
                 mount_wim(
                     &dism_path,
                     &work_wim,
@@ -565,7 +654,19 @@ async fn start_build(
                     false,
                     &workspace_dir,
                     Some(&state.process_guard),
-                    |msg| log_and_emit(&state, &app, "info", msg),
+                    |msg| {
+                        log_with_progress(
+                            &state,
+                            &app,
+                            3,
+                            "step_mount_rw",
+                            26.0,
+                            install_end,
+                            ProgressTool::Dism,
+                            &mut step3_pct,
+                            msg,
+                        )
+                    },
                 )
                 .await?;
                 install_mounted = true;
@@ -588,6 +689,7 @@ async fn start_build(
                     return Err("sources\\boot.wim not found in ISO; cannot inject Setup drivers.".to_string());
                 }
 
+                let mut boot_pct = 32.0f32;
                 if let Err(err) = mount_wim(
                     &dism_path,
                     &boot_wim_path,
@@ -596,7 +698,19 @@ async fn start_build(
                     false,
                     &workspace_dir,
                     Some(&state.process_guard),
-                    |msg| log_and_emit(&state, &app, "info", msg),
+                    |msg| {
+                        log_with_progress(
+                            &state,
+                            &app,
+                            3,
+                            "step_mount_rw",
+                            32.0,
+                            34.0,
+                            ProgressTool::Dism,
+                            &mut boot_pct,
+                            msg,
+                        )
+                    },
                 )
                 .await
                 {
@@ -648,7 +762,17 @@ async fn start_build(
                         }
                     });
 
+                    let total_feat_ops = (config.features.enable.len()
+                        + config.features.disable.len()
+                        + config.features.capabilities_add.len()
+                        + config.features.capabilities_remove.len())
+                    .max(1) as f32;
+                    let mut op_idx = 0usize;
+
                     for feat in &config.features.enable {
+                        let s = 34.0 + 12.0 * (op_idx as f32 / total_feat_ops);
+                        let e = 34.0 + 12.0 * ((op_idx + 1) as f32 / total_feat_ops);
+                        let mut pct = s;
                         apply_enable_feature(
                             &dism_path,
                             &mount_install,
@@ -656,22 +780,54 @@ async fn start_build(
                             feat,
                             fallback_sxs.as_deref(),
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    4,
+                                    "step_features",
+                                    s,
+                                    e,
+                                    ProgressTool::Dism,
+                                    &mut pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
+                        op_idx += 1;
                     }
                     for feat_name in &config.features.disable {
+                        let s = 34.0 + 12.0 * (op_idx as f32 / total_feat_ops);
+                        let e = 34.0 + 12.0 * ((op_idx + 1) as f32 / total_feat_ops);
+                        let mut pct = s;
                         apply_disable_feature(
                             &dism_path,
                             &mount_install,
                             &dism_log,
                             feat_name,
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    4,
+                                    "step_features",
+                                    s,
+                                    e,
+                                    ProgressTool::Dism,
+                                    &mut pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
+                        op_idx += 1;
                     }
                     for cap in &config.features.capabilities_add {
+                        let s = 34.0 + 12.0 * (op_idx as f32 / total_feat_ops);
+                        let e = 34.0 + 12.0 * ((op_idx + 1) as f32 / total_feat_ops);
+                        let mut pct = s;
                         apply_add_capability(
                             &dism_path,
                             &mount_install,
@@ -679,20 +835,49 @@ async fn start_build(
                             cap,
                             fallback_sxs.as_deref(),
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    4,
+                                    "step_features",
+                                    s,
+                                    e,
+                                    ProgressTool::Dism,
+                                    &mut pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
+                        op_idx += 1;
                     }
                     for cap_name in &config.features.capabilities_remove {
+                        let s = 34.0 + 12.0 * (op_idx as f32 / total_feat_ops);
+                        let e = 34.0 + 12.0 * ((op_idx + 1) as f32 / total_feat_ops);
+                        let mut pct = s;
                         apply_remove_capability(
                             &dism_path,
                             &mount_install,
                             &dism_log,
                             cap_name,
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    4,
+                                    "step_features",
+                                    s,
+                                    e,
+                                    ProgressTool::Dism,
+                                    &mut pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
+                        op_idx += 1;
                     }
                 }
 
@@ -703,16 +888,29 @@ async fn start_build(
                         5,
                         9,
                         "step_updates",
-                        48.0,
+                        46.0,
                         "Integrating Windows Updates...",
                     );
+                    let mut upd_pct = 46.0f32;
                     apply_updates(
                         &dism_path,
                         &mount_install,
                         &dism_log,
                         &config.updates.items,
                         Some(&state.process_guard),
-                        |msg| log_and_emit(&state, &app, "info", msg),
+                        |msg| {
+                            log_with_progress(
+                                &state,
+                                &app,
+                                5,
+                                "step_updates",
+                                46.0,
+                                58.0,
+                                ProgressTool::Dism,
+                                &mut upd_pct,
+                                msg,
+                            )
+                        },
                     )
                     .await?;
                 }
@@ -731,6 +929,11 @@ async fn start_build(
                         "Applying Provisioned Appx / MSIX changes...",
                     );
 
+                    let total_appx_ops = (config.apps.remove_families.len()
+                        + config.apps.add_packages.len())
+                    .max(1) as f32;
+                    let mut appx_idx = 0usize;
+
                     if !config.apps.remove_families.is_empty() {
                         let live_apps = query_mounted_appx_list(&mount_install).await?;
                         let mut by_family: HashMap<String, String> = HashMap::new();
@@ -742,6 +945,9 @@ async fn start_build(
                         }
 
                         for fam in &config.apps.remove_families {
+                            let s = 58.0 + 8.0 * (appx_idx as f32 / total_appx_ops);
+                            let e = 58.0 + 8.0 * ((appx_idx + 1) as f32 / total_appx_ops);
+                            let mut pct = s;
                             let key = fam.to_ascii_lowercase();
                             if let Some(exact_pkg) = by_family.get(&key) {
                                 remove_provisioned_appx(
@@ -750,7 +956,19 @@ async fn start_build(
                                     &dism_log,
                                     exact_pkg,
                                     Some(&state.process_guard),
-                                    |msg| log_and_emit(&state, &app, "info", msg),
+                                    |msg| {
+                                        log_with_progress(
+                                            &state,
+                                            &app,
+                                            6,
+                                            "step_appx",
+                                            s,
+                                            e,
+                                            ProgressTool::Dism,
+                                            &mut pct,
+                                            msg,
+                                        )
+                                    },
                                 )
                                 .await?;
                             } else {
@@ -763,19 +981,36 @@ async fn start_build(
                                     ),
                                 );
                             }
+                            appx_idx += 1;
                         }
                     }
 
                     for pkg in &config.apps.add_packages {
+                        let s = 58.0 + 8.0 * (appx_idx as f32 / total_appx_ops);
+                        let e = 58.0 + 8.0 * ((appx_idx + 1) as f32 / total_appx_ops);
+                        let mut pct = s;
                         add_provisioned_appx(
                             &dism_path,
                             &mount_install,
                             &dism_log,
                             pkg,
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    6,
+                                    "step_appx",
+                                    s,
+                                    e,
+                                    ProgressTool::Dism,
+                                    &mut pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
+                        appx_idx += 1;
                     }
                 }
 
@@ -790,6 +1025,29 @@ async fn start_build(
                         "Injecting device drivers...",
                     );
 
+                    let install_drv_count = if install_mounted {
+                        config
+                            .drivers
+                            .items
+                            .iter()
+                            .filter(|d| d.inject_to_install_wim)
+                            .count()
+                    } else {
+                        0
+                    };
+                    let boot_drv_count = if boot_mounted {
+                        config
+                            .drivers
+                            .items
+                            .iter()
+                            .filter(|d| d.inject_to_boot_wim)
+                            .count()
+                    } else {
+                        0
+                    };
+                    let total_drv_ops = (install_drv_count + boot_drv_count).max(1) as f32;
+                    let mut drv_idx = 0usize;
+
                     if install_mounted {
                         for drv in config
                             .drivers
@@ -797,6 +1055,9 @@ async fn start_build(
                             .iter()
                             .filter(|d| d.inject_to_install_wim)
                         {
+                            let s = 66.0 + 6.0 * (drv_idx as f32 / total_drv_ops);
+                            let e = 66.0 + 6.0 * ((drv_idx + 1) as f32 / total_drv_ops);
+                            let mut pct = s;
                             inject_driver(
                                 &dism_path,
                                 &mount_install,
@@ -804,9 +1065,22 @@ async fn start_build(
                                 drv,
                                 "install.wim",
                                 Some(&state.process_guard),
-                                |msg| log_and_emit(&state, &app, "info", msg),
+                                |msg| {
+                                    log_with_progress(
+                                        &state,
+                                        &app,
+                                        7,
+                                        "step_drivers",
+                                        s,
+                                        e,
+                                        ProgressTool::Dism,
+                                        &mut pct,
+                                        msg,
+                                    )
+                                },
                             )
                             .await?;
+                            drv_idx += 1;
                         }
                     }
 
@@ -817,6 +1091,9 @@ async fn start_build(
                             .iter()
                             .filter(|d| d.inject_to_boot_wim)
                         {
+                            let s = 66.0 + 6.0 * (drv_idx as f32 / total_drv_ops);
+                            let e = 66.0 + 6.0 * ((drv_idx + 1) as f32 / total_drv_ops);
+                            let mut pct = s;
                             inject_driver(
                                 &dism_path,
                                 &mount_boot,
@@ -824,9 +1101,22 @@ async fn start_build(
                                 drv,
                                 "boot.wim (Index 2)",
                                 Some(&state.process_guard),
-                                |msg| log_and_emit(&state, &app, "info", msg),
+                                |msg| {
+                                    log_with_progress(
+                                        &state,
+                                        &app,
+                                        7,
+                                        "step_drivers",
+                                        s,
+                                        e,
+                                        ProgressTool::Dism,
+                                        &mut pct,
+                                        msg,
+                                    )
+                                },
                             )
                             .await?;
+                            drv_idx += 1;
                         }
                     }
                 }
@@ -841,13 +1131,26 @@ async fn start_build(
                         72.0,
                         "Running component store cleanup...",
                     );
+                    let mut clean_pct = 72.0f32;
                     let cleaned = run_component_cleanup(
                         &dism_path,
                         &mount_install,
                         &dism_log,
                         config.updates.cleanup_reset_base,
                         Some(&state.process_guard),
-                        |msg| log_and_emit(&state, &app, "info", msg),
+                        |msg| {
+                            log_with_progress(
+                                &state,
+                                &app,
+                                8,
+                                "step_cleanup",
+                                72.0,
+                                75.0,
+                                ProgressTool::Dism,
+                                &mut clean_pct,
+                                msg,
+                            )
+                        },
                     )
                     .await?;
                     if !cleaned {
@@ -952,13 +1255,27 @@ async fn start_build(
                     );
 
                     if boot_mounted {
+                        let mut um_boot_pct = 78.0f32;
+                        let boot_end = if install_mounted { 80.0 } else { 85.0 };
                         if let Err(err) = unmount_wim(
                             &dism_path,
                             &mount_boot,
                             true,
                             &workspace_dir,
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    9,
+                                    "step_unmount_commit",
+                                    78.0,
+                                    boot_end,
+                                    ProgressTool::Dism,
+                                    &mut um_boot_pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await
                         {
@@ -978,13 +1295,27 @@ async fn start_build(
                     }
 
                     if install_mounted {
+                        let start_pct = if boot_mounted { 80.0 } else { 78.0 };
+                        let mut um_inst_pct = start_pct;
                         unmount_wim(
                             &dism_path,
                             &mount_install,
                             true,
                             &workspace_dir,
                             Some(&state.process_guard),
-                            |msg| log_and_emit(&state, &app, "info", msg),
+                            |msg| {
+                                log_with_progress(
+                                    &state,
+                                    &app,
+                                    9,
+                                    "step_unmount_commit",
+                                    start_pct,
+                                    85.0,
+                                    ProgressTool::Dism,
+                                    &mut um_inst_pct,
+                                    msg,
+                                )
+                            },
                         )
                         .await?;
                     }
@@ -1030,6 +1361,7 @@ async fn start_build(
         let out_path = PathBuf::from(&config.output_path);
         if config.target == "iso" {
             let sources_dir = iso_root.join("sources");
+            let mut pkg_pct = 85.0f32;
             package_install_image(
                 &wimlib,
                 &work_wim,
@@ -1037,7 +1369,19 @@ async fn start_build(
                 &config.install_format,
                 config.split_size_mb,
                 Some(&state.process_guard),
-                |msg| log_and_emit(&state, &app, "info", msg),
+                |msg| {
+                    log_with_progress(
+                        &state,
+                        &app,
+                        9,
+                        "step_finalize",
+                        85.0,
+                        94.0,
+                        ProgressTool::Wimlib,
+                        &mut pkg_pct,
+                        msg,
+                    )
+                },
             )
             .await?;
 
@@ -1053,7 +1397,7 @@ async fn start_build(
                     9,
                     9,
                     "step_files_iso",
-                    88.0,
+                    94.0,
                     "Copying custom files into ISO root...",
                 );
 
@@ -1115,36 +1459,44 @@ async fn start_build(
                 format!("ISO created via {iso_tool}: {}", out_path.display()),
             );
         } else {
-            let dest_dir = out_path
-                .parent()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| workspace_dir.clone());
-            let files = package_install_image(
+            let mut pkg_pct = 85.0f32;
+            let files = package_install_image_to_path(
                 &wimlib,
                 &work_wim,
-                &dest_dir,
+                &out_path,
                 &config.install_format,
                 config.split_size_mb,
                 Some(&state.process_guard),
-                |msg| log_and_emit(&state, &app, "info", msg),
+                |msg| {
+                    log_with_progress(
+                        &state,
+                        &app,
+                        9,
+                        "step_finalize",
+                        85.0,
+                        99.0,
+                        ProgressTool::Wimlib,
+                        &mut pkg_pct,
+                        msg,
+                    )
+                },
             )
             .await?;
 
-            if files.len() == 1 && config.install_format != InstallOutputFormat::Swm {
-                if files[0] != out_path {
-                    if out_path.exists() {
-                        let _ = std::fs::remove_file(&out_path);
-                    }
-                    std::fs::rename(&files[0], &out_path)
-                        .map_err(|e| format!("Failed saving output image to '{}': {e}", out_path.display()))?;
-                }
-            }
-
+            let primary_out = files.first().cloned().unwrap_or_else(|| out_path.clone());
             log_and_emit(
                 &state,
                 &app,
                 "info",
-                format!("Image package saved to '{}'", out_path.display()),
+                if config.install_format == InstallOutputFormat::Swm {
+                    format!(
+                        "Split image saved to '{}' ({} part(s))",
+                        primary_out.display(),
+                        files.len()
+                    )
+                } else {
+                    format!("Image package saved to '{}'", primary_out.display())
+                },
             );
         }
 
@@ -1153,7 +1505,8 @@ async fn start_build(
     }
     .await;
 
-    state.process_guard.set_busy(false);
+    cleanup_session_dir_if_clean(&state, &app, &workspace_dir, &session_dir).await;
+    drop(_busy);
     if let Err(ref e) = build_res {
         log_and_emit(&state, &app, "error", format!("Build failed: {e}"));
     }
@@ -1169,12 +1522,42 @@ async fn cancel_build(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         "Build cancellation requested; terminating active processes...",
     );
     state.process_guard.kill_all_tracked_trees();
-    let _ = recover_workspace(app, state).await;
+
+    // Wait for the active build/catalog task to unwind its own /Discard and cleanup
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        state.process_guard.wait_until_idle(),
+    )
+    .await;
+
+    if waited.is_err() {
+        log_and_emit(
+            &state,
+            &app,
+            "warn",
+            "Timed out waiting for active operation to unwind; forcing workspace recovery.",
+        );
+        state.process_guard.set_busy(false);
+    }
+
+    let workspace_dir = state
+        .settings
+        .lock()
+        .map(|s| PathBuf::from(&s.workspace_dir))
+        .unwrap_or_else(|_| default_workspace_dir());
+    let ws = read_workspace_state(&workspace_dir);
+    if !ws.active_mounts.is_empty() || !ws.loaded_hives.is_empty() {
+        let _ = recover_workspace(app, state).await;
+    }
     Ok(())
 }
 
 #[tauri::command]
 async fn recover_workspace(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    if state.process_guard.is_busy() {
+        return Err("Cannot recover workspace while an image operation is running.".to_string());
+    }
+
     let workspace_dir = state
         .settings
         .lock()
@@ -1198,6 +1581,9 @@ async fn recover_workspace(app: AppHandle, state: State<'_, AppState>) -> Result
     })
     .await?;
 
+    let session_dir = workspace_dir.join("session_current");
+    cleanup_session_dir_if_clean(&state, &app, &workspace_dir, &session_dir).await;
+
     log_and_emit(&state, &app, "info", "Workspace recovery completed.");
     Ok("recovered".to_string())
 }
@@ -1211,7 +1597,25 @@ async fn force_cancel_and_close(app: AppHandle, state: State<'_, AppState>) -> R
         "Force closing requested: terminating active child processes and cleaning workspace...",
     );
     state.process_guard.kill_all_tracked_trees();
-    let _ = recover_workspace(app.clone(), state).await;
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        state.process_guard.wait_until_idle(),
+    )
+    .await;
+    if waited.is_err() {
+        state.process_guard.set_busy(false);
+    }
+
+    let workspace_dir = state
+        .settings
+        .lock()
+        .map(|s| PathBuf::from(&s.workspace_dir))
+        .unwrap_or_else(|_| default_workspace_dir());
+    let ws = read_workspace_state(&workspace_dir);
+    if !ws.active_mounts.is_empty() || !ws.loaded_hives.is_empty() {
+        let _ = recover_workspace(app.clone(), state).await;
+    }
+
     app.exit(0);
     Ok(())
 }

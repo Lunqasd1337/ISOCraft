@@ -148,6 +148,8 @@ export interface FeaturesQueueState {
   enableAll: boolean;
   limitAccess: boolean;
   customSxsPath: string | null;
+  featureOverrides?: Record<string, { enableAll: boolean; customSxsPath: string | null }>;
+  capabilityOverrides?: Record<string, { limitAccess: boolean; customSxsPath: string | null }>;
 }
 
 export interface UpdateScanInfo {

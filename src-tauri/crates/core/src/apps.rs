@@ -119,21 +119,21 @@ pub fn classify_appx_arch(path: &Path) -> &'static str {
 
     // Bundles usually carry multi-arch or neutral payloads unless explicitly tagged
     let tokens: Vec<&str> = name
-        .split(|c: char| c == '_' || c == '.' || c == '-')
+        .split(|c: char| c == '_' || c == '.' || c == '-' || c == ' ')
         .filter(|t| !t.is_empty())
         .collect();
 
     if tokens.contains(&"arm64") || tokens.contains(&"aarch64") {
         return "arm64";
     }
+    if tokens.contains(&"x64") || tokens.contains(&"amd64") {
+        return "x64";
+    }
     if tokens.contains(&"x86") || tokens.contains(&"win32") {
         return "x86";
     }
     if tokens.contains(&"arm") {
         return "arm";
-    }
-    if tokens.contains(&"x64") || tokens.contains(&"amd64") {
-        return "x64";
     }
     if tokens.contains(&"neutral") || ext.ends_with("bundle") {
         return "neutral";
@@ -148,11 +148,16 @@ pub fn scan_appx_dependencies(paths: &[String]) -> DependencyScanResult {
     for raw in paths {
         let p = PathBuf::from(raw);
         if p.is_dir() {
-            if let Ok(entries) = fs::read_dir(&p) {
-                for entry in entries.flatten() {
-                    let child = entry.path();
-                    if child.is_file() && is_appx_package_file(&child) {
-                        classify_and_push(&child, &mut compatible, &mut skipped_incompatible);
+            let mut stack = vec![p];
+            while let Some(dir) = stack.pop() {
+                if let Ok(entries) = fs::read_dir(&dir) {
+                    for entry in entries.flatten() {
+                        let child = entry.path();
+                        if child.is_dir() {
+                            stack.push(child);
+                        } else if child.is_file() && is_appx_package_file(&child) {
+                            classify_and_push(&child, &mut compatible, &mut skipped_incompatible);
+                        }
                     }
                 }
             }
@@ -442,5 +447,33 @@ mod tests {
         assert!(!args.contains(&"/SkipLicense".to_string()));
         assert!(args.contains(&"/StubPackageOption:UseStub".to_string()));
         assert!(args.contains(&"/Region:all".to_string()));
+    }
+
+    #[test]
+    fn classifies_win32_x64_and_scans_subfolders_recursively() {
+        assert_eq!(
+            classify_appx_arch(Path::new(r"C:\Deps\MyApp_Win32_x64.msix")),
+            "x64"
+        );
+        assert_eq!(
+            classify_appx_arch(Path::new(r"C:\Deps\MyApp x86.appx")),
+            "x86"
+        );
+
+        let dir = std::env::temp_dir().join(format!("w11_appx_rec_{}", std::process::id()));
+        let sub_x64 = dir.join("x64");
+        let sub_x86 = dir.join("x86");
+        fs::create_dir_all(&sub_x64).unwrap();
+        fs::create_dir_all(&sub_x86).unwrap();
+        fs::write(sub_x64.join("VCLibs_Win32_x64.appx"), b"x64").unwrap();
+        fs::write(sub_x86.join("VCLibs_x86.appx"), b"x86").unwrap();
+
+        let res = scan_appx_dependencies(&[dir.to_string_lossy().to_string()]);
+        assert_eq!(res.compatible.len(), 1);
+        assert!(res.compatible[0].ends_with("VCLibs_Win32_x64.appx"));
+        assert_eq!(res.skipped_incompatible.len(), 1);
+        assert_eq!(res.skipped_incompatible[0].detected_arch, "x86");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

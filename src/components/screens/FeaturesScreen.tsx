@@ -143,13 +143,30 @@ export function FeaturesScreen({
     });
   };
 
+  const updateSxsPath = (nextPath: string | null) => {
+    const nextFeat = { ...(featuresQueue.featureOverrides ?? {}) };
+    for (const [k, v] of Object.entries(nextFeat)) {
+      nextFeat[k] = { ...v, customSxsPath: nextPath };
+    }
+    const nextCap = { ...(featuresQueue.capabilityOverrides ?? {}) };
+    for (const [k, v] of Object.entries(nextCap)) {
+      nextCap[k] = { ...v, customSxsPath: nextPath };
+    }
+    onChangeFeaturesQueue({
+      ...featuresQueue,
+      customSxsPath: nextPath,
+      featureOverrides: nextFeat,
+      capabilityOverrides: nextCap,
+    });
+  };
+
   const handleBrowseSxs = async () => {
     const selected = await open({
       directory: true,
       multiple: false,
     });
     if (typeof selected === "string" && selected.trim()) {
-      onChangeFeaturesQueue({ ...featuresQueue, customSxsPath: selected });
+      updateSxsPath(selected);
     }
   };
 
@@ -304,10 +321,9 @@ export function FeaturesScreen({
                     value={featuresQueue.customSxsPath ?? ""}
                     placeholder={t("screens.features.sxsPlaceholder")}
                     onChange={(e) =>
-                      onChangeFeaturesQueue({
-                        ...featuresQueue,
-                        customSxsPath: e.target.value.trim() ? e.target.value : null,
-                      })
+                      updateSxsPath(
+                        e.target.value.trim() ? e.target.value : null
+                      )
                     }
                     className="flex-1 px-3 py-1.5 rounded-md bg-canvas border border-border-subtle text-[12px] font-mono text-text-primary"
                   />
@@ -322,9 +338,7 @@ export function FeaturesScreen({
                   {featuresQueue.customSxsPath && (
                     <button
                       type="button"
-                      onClick={() =>
-                        onChangeFeaturesQueue({ ...featuresQueue, customSxsPath: null })
-                      }
+                      onClick={() => updateSxsPath(null)}
                       className="px-2.5 py-1.5 rounded-md text-[12px] text-text-secondary hover:bg-subtle"
                     >
                       {t("screens.features.clear")}
@@ -338,12 +352,18 @@ export function FeaturesScreen({
                   <input
                     type="checkbox"
                     checked={featuresQueue.enableAll}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      const nextFeat = { ...(featuresQueue.featureOverrides ?? {}) };
+                      for (const [k, v] of Object.entries(nextFeat)) {
+                        nextFeat[k] = { ...v, enableAll: val };
+                      }
                       onChangeFeaturesQueue({
                         ...featuresQueue,
-                        enableAll: e.target.checked,
-                      })
-                    }
+                        enableAll: val,
+                        featureOverrides: nextFeat,
+                      });
+                    }}
                     className="accent-accent"
                   />
                   <span>{t("screens.features.enableAllLabel")}</span>
@@ -352,12 +372,18 @@ export function FeaturesScreen({
                   <input
                     type="checkbox"
                     checked={featuresQueue.limitAccess}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      const nextCap = { ...(featuresQueue.capabilityOverrides ?? {}) };
+                      for (const [k, v] of Object.entries(nextCap)) {
+                        nextCap[k] = { ...v, limitAccess: val };
+                      }
                       onChangeFeaturesQueue({
                         ...featuresQueue,
-                        limitAccess: e.target.checked,
-                      })
-                    }
+                        limitAccess: val,
+                        capabilityOverrides: nextCap,
+                      });
+                    }}
                     className="accent-accent"
                   />
                   <span>{t("screens.features.limitAccessLabel")}</span>

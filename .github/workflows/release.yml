@@ -1,10 +1,16 @@
 name: Release
 
 on:
+  release:
+    types: [published]
   push:
     tags:
       - "v*"
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -34,11 +40,33 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Run core unit tests
+        working-directory: src-tauri
+        run: cargo test -p isocraft-core --offline
+
       - name: Fetch bundled external tools (wimlib & xorriso)
         shell: pwsh
         run: .\scripts\fetch-tools.ps1
 
-      - name: Build and publish Tauri release
+      - name: Build and attach artifacts to existing GitHub Release
+        if: github.event_name == 'release'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ github.event.release.id }}
+          tagName: ${{ github.event.release.tag_name }}
+          releaseName: ${{ github.event.release.name }}
+          releaseBody: ${{ github.event.release.body }}
+          releaseDraft: false
+          prerelease: ${{ github.event.release.prerelease }}
+          generateReleaseNotes: false
+          updaterJsonPreferNsis: true
+
+      - name: Build and publish Tauri release (tag push / manual)
+        if: github.event_name != 'release'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
