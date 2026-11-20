@@ -539,10 +539,6 @@ export function BuildScreen({
                 })}
               </div>
 
-              <div className="px-3 py-2 rounded-md bg-canvas border border-border-subtle text-[12px] font-mono text-text-secondary break-all">
-                {buildProgress?.message ?? "..."}
-              </div>
-
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
