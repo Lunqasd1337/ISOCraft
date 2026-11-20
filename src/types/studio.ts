@@ -168,6 +168,34 @@ export interface UpdatesQueueState {
   cleanupResetBase: boolean;
 }
 
+export interface CatalogUpdateEntry {
+  updateId: string;
+  title: string;
+  kb: string | null;
+  products: string;
+  classification: string;
+  lastUpdated: string;
+  version: string;
+  sizeText: string;
+  sizeBytes: number;
+}
+
+export interface CatalogDownloadProgress {
+  updateId: string;
+  fileName: string;
+  fileIndex: number;
+  totalFiles: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  percent: number;
+}
+
+export interface CatalogDownloadResult {
+  updateId: string;
+  targetDir: string;
+  downloadedFiles: UpdateScanInfo[];
+}
+
 export interface DriverScanResult {
   path: string;
   isDirectory: boolean;

@@ -9,7 +9,7 @@
 ### Backend (`src-tauri/`)
 - **`src-tauri/src/lib.rs`** — точка входа Tauri (`AppState`, команды IPC, перехват `CloseRequested`, оркестратор `start_build` и восстановление `recover_workspace`).
 - **`src-tauri/crates/core/src/`** (`isocraft-core`, чистое ядро без UI/диалогов):
-  - `env.rs` — определение прав администратора, поиск утилит (`dism.exe`, `wimlib-imagex.exe`, `xorriso.exe`, `oscdimg.exe`), проверка свободного места (`< 40 ГБ`), чтение/запись `workspace_state.json`.
+  - `env.rs` — определение прав администратора, поиск утилит (`dism.exe`, `curl.exe`, `wimlib-imagex.exe`, `xorriso.exe`, `oscdimg.exe`), проверка свободного места (`< 40 ГБ`), чтение/запись `workspace_state.json`.
   - `settings.rs` — хранение настроек в `%LOCALAPPDATA%\ISOCraft\settings.json`, рабочая папка по умолчанию `%LOCALAPPDATA%\ISOCraft\work`, WebView2 в `%LOCALAPPDATA%\ISOCraft\WebView2`.
   - `logger.rs` — кольцевой буфер логов сессии (`LogEntry`) и экспорт диагностики (`dism.log` + лог приложения).
   - `process.rs` — `ProcessGuard`, запуск CLI без окна консоли (`CREATE_NO_WINDOW`) с построчным стримингом stdout/stderr и принудительное завершение дерева процессов через Win32 ToolHelp (`kill_process_tree`).
@@ -19,7 +19,7 @@
   - `dism.rs` — загрузка и дисковое кеширование каталога редакции (`catalog_*.json`) через однократный RO-маунт + PowerShell `Dism` JSON + немедленный `/Discard`.
   - `apps.rs` — извлечение `PackageFamilyName`, словарь защищённых системных пакетов, фильтрация зависимостей по архитектуре (`x64`/`neutral`), вызовы DISM `/Add-ProvisionedAppxPackage` и `/Remove-ProvisionedAppxPackage`.
   - `features.rs` — включение/отключение Optional Features (`/All`, `/Source sxs`, `/LimitAccess`) и Capabilities.
-  - `updates.rs` — сканирование `.msu`/`.cab` и папок, пакетная интеграция 24H2+ Checkpoint CU, расшифровка ошибок DISM и `StartComponentCleanup` (с безопасным пропуском `0x800f0806` в оффлайне).
+  - `updates.rs` — сканирование `.msu`/`.cab` и папок, поиск и загрузка обновлений из Microsoft Update Catalog (`Search.aspx` / `DownloadDialog.aspx`) в `<workspace>\downloads\updates`, пакетная интеграция 24H2+ Checkpoint CU, расшифровка ошибок DISM и `StartComponentCleanup` (с безопасным пропуском `0x800f0806` в оффлайне).
   - `drivers.rs` — сканирование `.inf` драйверов, передача `/Recurse` (только для директорий) и `/ForceUnsigned`, поддержка `install.wim` и `boot.wim` Index 2.
   - `reg_parser.rs` — парсер `.reg` v5 / `REGEDIT4` (UTF-16LE/BE/UTF-8, `\`, `@`, все типы значений), маппинг веток (`CurrentControlSet`, `HKCU`, `HKCR`, `HKU\.DEFAULT`) и dry-run предпросмотр.
   - `registry.rs` — нативная Win32 загрузка/выгрузка оффлайн-кустов и применение операций с правами `TrustedInstaller` (`REG_OPTION_BACKUP_RESTORE` + `NtDeleteKey`).
@@ -29,7 +29,7 @@
 ### Frontend (`src/`)
 - **`src/App.tsx`** — единое состояние очередей, каталога, пресетов (включая relink/remove), тем и диалога сборки.
 - **`src/components/`** — `Titlebar.tsx` (40px, переключение языка и темы), `Sidebar.tsx` (220px, 8 разделов с бейджами очереди), `StatusBar.tsx` (48px), `LogDrawer.tsx` (200px), `SettingsModal.tsx`, `CloseGuardModal.tsx`.
-- **`src/components/screens/`** — `ImageScreen.tsx`, `AppsScreen.tsx` (+ `AddAppxModal.tsx`), `FeaturesScreen.tsx`, `UpdatesScreen.tsx`, `DriversScreen.tsx`, `RegistryScreen.tsx`, `FilesScreen.tsx`, `BuildScreen.tsx`, `ScreenShell.tsx`.
+- **`src/components/screens/`** — `ImageScreen.tsx`, `AppsScreen.tsx` (+ `AddAppxModal.tsx`), `FeaturesScreen.tsx`, `UpdatesScreen.tsx` (+ `CatalogModal.tsx`), `DriversScreen.tsx`, `RegistryScreen.tsx`, `FilesScreen.tsx`, `BuildScreen.tsx`, `ScreenShell.tsx`.
 
 ---
 
@@ -70,6 +70,9 @@
 | `load_image_catalog` | Получение/кеширование списков Provisioned Appx, Optional Features и Capabilities для индекса. |
 | `scan_appx_dependencies` | Фильтрация зависимостей AppX/MSIX по архитектуре (`x64`/`neutral` допускаются, `x86`/`arm64` отсеиваются). |
 | `scan_update_path` | Подсчёт `.msu`/`.cab` пакетов и размера файла/папки обновлений. |
+| `search_update_catalog` | Поиск обновлений в Microsoft Update Catalog (`Search.aspx`) с фильтрацией Windows 11 x64. |
+| `download_catalog_update` | Разрешение прямых ссылок (`DownloadDialog.aspx`) и загрузка `.msu`/`.cab` в `<workspace>\downloads\updates`. |
+| `cancel_catalog_download` | Прерывание активной загрузки обновления из каталога Microsoft (`ProcessGuard`). |
 | `scan_driver_folder` | Подсчёт `.inf` файлов и инспекция папки/файла драйвера. |
 | `scan_custom_file_path` | Инспекция пользовательского файла или папки для очереди раздела «Файлы». |
 | `preview_reg_file` | Dry-run парсинг `.reg` (затрагиваемые кусты, статистика операций, предупреждения, ошибки). |
@@ -83,6 +86,7 @@
 ### События (`listen`)
 - `app-log` (`LogEntry`) — потоковая запись логов бэкенда и CLI в журнал UI.
 - `build-progress` (`BuildProgressEvent`) — текущий шаг (`1..9`), `phaseKey`, процент и сообщение статуса.
+- `catalog-download-progress` (`CatalogDownloadProgress`) — прогресс загрузки `.msu`/`.cab` файла из Microsoft Update Catalog (`fileIndex`, `totalFiles`, `downloadedBytes`, `totalBytes`, `percent`).
 - `close-requested-while-busy` — запрос подтверждения у пользователя при попытке закрыть окно во время активной операции.
 
 ---
@@ -94,6 +98,7 @@
   - `WebView2\` — профили WebView2 (изолировано под правами UAC);
   - `work\` — рабочая директория (можно перенести на другой диск через Настройки):
     - `cache\catalog_*.json` — кеш каталогов редакций;
+    - `downloads\updates\` — загруженные из Microsoft Update Catalog пакеты `.msu`/`.cab`;
     - `dism.log` — выделенный лог DISM текущей рабочей директории;
     - `workspace_state.json` — журнал активных точек монтирования и временных имён кустов реестра (`ISOCRAFT_<pid>_<HIVE>`); удаляется только после полного размонтирования.
 - При аварийном завершении на следующем запуске `check_environment` обнаруживает `workspace_state.json` и отображает баннер восстановления (**«Очистить сейчас»**).

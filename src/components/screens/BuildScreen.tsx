@@ -484,7 +484,7 @@ export function BuildScreen({
 
           {/* Card 2: Output Settings OR Active Build Progress */}
           {isBuilding ? (
-            <div className="bg-surface border border-border-subtle rounded-lg p-5 space-y-4">
+            <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <Loader2 className="w-4 h-4 animate-spin text-accent" strokeWidth={1.8} />
@@ -531,7 +531,7 @@ export function BuildScreen({
                     >
                       {isDone ? (
                         <CheckCircle2
-                          className="w-3.5 h-3.5 shrink-0 text-status-success"
+                          className="animate-fluent-icon-pop w-3.5 h-3.5 shrink-0 text-status-success"
                           strokeWidth={1.8}
                         />
                       ) : isActive ? (
@@ -555,7 +555,7 @@ export function BuildScreen({
 
               {diagStatus && (
                 <div
-                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md text-[12px] ${
+                  className={`animate-fluent-item flex items-center justify-between gap-2 px-3 py-2 rounded-md text-[12px] ${
                     diagStatus.ok
                       ? "bg-status-success-bg text-status-success"
                       : "bg-status-danger-bg text-status-danger"
@@ -590,14 +590,14 @@ export function BuildScreen({
               </div>
             </div>
           ) : (
-            <div className="bg-surface border border-border-subtle rounded-lg p-5 space-y-4">
+            <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg p-5 space-y-4">
               <h2 className="text-[14px] font-semibold text-text-primary">
                 {t("screens.build.outputTitle")}
               </h2>
 
               {buildResultMessage && (
                 <div
-                  className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-md text-[12.5px] ${
+                  className={`animate-fluent-item flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-md text-[12.5px] ${
                     buildResultMessage.ok
                       ? "bg-status-success-bg text-status-success"
                       : "bg-status-danger-bg text-status-danger"
@@ -617,7 +617,7 @@ export function BuildScreen({
 
               {diagStatus && (
                 <div
-                  className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-md text-[12px] ${
+                  className={`animate-fluent-item flex items-center justify-between gap-2 px-3.5 py-2 rounded-md text-[12px] ${
                     diagStatus.ok
                       ? "bg-status-success-bg text-status-success"
                       : "bg-status-danger-bg text-status-danger"
@@ -694,7 +694,7 @@ export function BuildScreen({
                     ))}
                   </div>
                   {output.installFormat === "swm" && (
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="animate-fluent-item flex items-center gap-2 pt-1">
                       <label className="text-[12px] text-text-secondary">
                         {t("screens.build.splitSizeLabel")}:
                       </label>
@@ -744,7 +744,7 @@ export function BuildScreen({
 
               {/* ISO-only options */}
               {output.target === "iso" && (
-                <div className="pt-3 border-t border-border-subtle space-y-3">
+                <div className="animate-fluent-item pt-3 border-t border-border-subtle space-y-3">
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <label className="text-[12.5px] font-medium text-text-secondary">
@@ -752,7 +752,7 @@ export function BuildScreen({
                       </label>
                       {xmlStatus && (
                         <span
-                          className={`inline-flex items-center gap-1 text-[11.5px] font-medium ${
+                          className={`animate-fluent-item inline-flex items-center gap-1 text-[11.5px] font-medium ${
                             xmlStatus.valid ? "text-status-success" : "text-status-danger"
                           }`}
                         >

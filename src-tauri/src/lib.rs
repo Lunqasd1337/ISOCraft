@@ -9,7 +9,8 @@ use isocraft_core::drivers::{
     inject_driver, scan_driver_path as core_scan_driver_path, DriverScanResult, DriversBuildPlan,
 };
 use isocraft_core::env::{
-    check_environment_status, find_bundled_or_path, find_dism, find_oscdimg, EnvironmentStatus,
+    check_environment_status, find_bundled_or_path, find_curl, find_dism, find_oscdimg,
+    EnvironmentStatus,
 };
 use isocraft_core::features::{
     apply_add_capability, apply_disable_feature, apply_enable_feature, apply_remove_capability,
@@ -38,8 +39,10 @@ use isocraft_core::settings::{
     default_workspace_dir, load_settings, save_settings_to_disk, webview_user_data_dir, AppSettings,
 };
 use isocraft_core::updates::{
-    apply_updates, inspect_update_path as core_inspect_update_path, run_component_cleanup,
-    UpdateScanInfo, UpdatesBuildPlan,
+    apply_updates, download_catalog_update as core_download_catalog_update,
+    inspect_update_path as core_inspect_update_path, run_component_cleanup,
+    search_microsoft_catalog as core_search_microsoft_catalog, CatalogDownloadResult,
+    CatalogUpdateEntry, UpdateScanInfo, UpdatesBuildPlan,
 };
 use isocraft_core::wim::{
     export_single_edition, mount_wim, package_install_image, package_install_image_to_path,
@@ -401,6 +404,128 @@ fn scan_update_path(path: String) -> Result<UpdateScanInfo, String> {
 }
 
 #[tauri::command]
+async fn search_update_catalog(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    query: String,
+    only_win11_x64: Option<bool>,
+) -> Result<Vec<CatalogUpdateEntry>, String> {
+    let curl_path = find_curl()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "curl.exe not found on this Windows installation.".to_string())?;
+    let filter = only_win11_x64.unwrap_or(true);
+    log_and_emit(
+        &state,
+        &app,
+        "info",
+        format!("Searching Microsoft Update Catalog for '{query}' (win11_x64={filter})..."),
+    );
+
+    let res = core_search_microsoft_catalog(&curl_path, &query, filter, None).await;
+    match &res {
+        Ok(entries) => log_and_emit(
+            &state,
+            &app,
+            "info",
+            format!("Microsoft Update Catalog returned {} result(s).", entries.len()),
+        ),
+        Err(e) => log_and_emit(
+            &state,
+            &app,
+            "error",
+            format!("Microsoft Update Catalog search failed: {e}"),
+        ),
+    }
+    res
+}
+
+#[tauri::command]
+async fn download_catalog_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    update_id: String,
+    title: String,
+    expected_size_bytes: Option<u64>,
+) -> Result<CatalogDownloadResult, String> {
+    if state.process_guard.is_busy() {
+        return Err("Another image or download operation is currently running.".to_string());
+    }
+
+    let curl_path = find_curl()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "curl.exe not found on this Windows installation.".to_string())?;
+
+    let workspace_dir = state
+        .settings
+        .lock()
+        .map_err(|_| "Settings lock poisoned".to_string())?
+        .workspace_dir
+        .clone();
+    let workspace_path = PathBuf::from(workspace_dir);
+
+    let _busy = state.process_guard.enter_busy();
+    log_and_emit(
+        &state,
+        &app,
+        "info",
+        format!("Starting Microsoft Update Catalog download: {title} ({update_id})"),
+    );
+
+    let res = core_download_catalog_update(
+        &curl_path,
+        &update_id,
+        expected_size_bytes.unwrap_or(0),
+        &workspace_path,
+        Some(&state.process_guard),
+        |msg| log_and_emit(&state, &app, "info", msg),
+        |progress| {
+            let _ = app.emit("catalog-download-progress", &progress);
+        },
+    )
+    .await;
+
+    drop(_busy);
+
+    if let Err(ref e) = res {
+        let level = if e.to_ascii_lowercase().contains("cancelled") {
+            "warn"
+        } else {
+            "error"
+        };
+        log_and_emit(
+            &state,
+            &app,
+            level,
+            format!("Catalog update download failed: {e}"),
+        );
+    }
+
+    res
+}
+
+#[tauri::command]
+async fn cancel_catalog_download(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log_and_emit(
+        &state,
+        &app,
+        "warn",
+        "Catalog download cancellation requested; terminating curl...",
+    );
+    state.process_guard.kill_all_tracked_trees();
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        state.process_guard.wait_until_idle(),
+    )
+    .await;
+    Ok(())
+}
+
+#[tauri::command]
 fn scan_driver_folder(path: String) -> Result<DriverScanResult, String> {
     core_scan_driver_path(&PathBuf::from(path))
 }
@@ -462,9 +587,10 @@ fn import_preset(
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    const ALLOWED_URLS: [&str; 4] = [
+    const ALLOWED_URLS: [&str; 5] = [
         "https://www.microsoft.com/software-download/windows11",
         "https://uupdump.net/",
+        "https://www.catalog.update.microsoft.com/",
         "https://github.com/Lunqasd1337/ISOCraft",
         "https://github.com/Lunqasd1337/ISOCraft/releases",
     ];
@@ -1694,6 +1820,9 @@ pub fn run() {
             load_image_catalog,
             scan_appx_dependencies,
             scan_update_path,
+            search_update_catalog,
+            download_catalog_update,
+            cancel_catalog_download,
             scan_driver_folder,
             scan_custom_file_path,
             preview_reg_file,

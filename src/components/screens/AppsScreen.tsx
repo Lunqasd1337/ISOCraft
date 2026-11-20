@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -45,6 +46,36 @@ export function AppsScreen({
   const [confirmProtected, setConfirmProtected] = useState<ProvisionedAppxInfo | null>(
     null
   );
+  const [closingConfirm, setClosingConfirm] = useState(false);
+  const confirmTimerRef = useRef<number | null>(null);
+
+  const requestCloseConfirm = useCallback(() => {
+    if (!confirmProtected || closingConfirm) return;
+    setClosingConfirm(true);
+    confirmTimerRef.current = window.setTimeout(() => {
+      setConfirmProtected(null);
+      setClosingConfirm(false);
+    }, 140);
+  }, [confirmProtected, closingConfirm]);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current !== null) {
+        window.clearTimeout(confirmTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!confirmProtected) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        requestCloseConfirm();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmProtected, requestCloseConfirm]);
 
   const removeSet = useMemo(
     () => new Set(appsQueue.removeFamilies),
@@ -104,7 +135,7 @@ export function AppsScreen({
       />
 
       {catalogLoading && (
-        <div className="bg-surface border border-border-subtle rounded-lg px-6 py-10 flex flex-col items-center gap-3 text-center">
+        <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-6 py-10 flex flex-col items-center gap-3 text-center">
           <Loader2 className="w-6 h-6 animate-spin text-accent" strokeWidth={1.7} />
           <div className="text-[13.5px] font-medium text-text-primary">
             {t("screens.apps.loading")}
@@ -171,7 +202,7 @@ export function AppsScreen({
                 return (
                   <div
                     key={item.packagePath}
-                    className="px-4 py-3 flex items-center justify-between gap-4"
+                    className="animate-fluent-item px-4 py-3 flex items-center justify-between gap-4"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <PackagePlus
@@ -204,7 +235,7 @@ export function AppsScreen({
 
           {/* Provisioned packages list */}
           {filteredProvisioned.length === 0 && filteredAdded.length === 0 ? (
-            <div className="bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
+            <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-6 py-8 text-center text-[13px] text-text-secondary">
               {t("screens.apps.noMatches")}
             </div>
           ) : (
@@ -268,53 +299,62 @@ export function AppsScreen({
         <AddAppxModal onAdd={onAddPackage} onClose={() => setIsAddOpen(false)} />
       )}
 
-      {confirmProtected && (
-        <div className="animate-fluent-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="animate-fluent-modal w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden">
-            <div className="p-5 flex items-start gap-3.5">
-              <div className="w-9 h-9 rounded-full bg-status-warning-bg text-status-warning flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" strokeWidth={1.75} />
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-[15px] font-semibold text-text-primary">
-                  {t("screens.apps.protectConfirmTitle")}
-                </h3>
-                <p className="text-[13px] text-text-secondary leading-relaxed">
-                  {t("screens.apps.protectConfirmDesc", {
-                    name: confirmProtected.displayName,
-                  })}
-                </p>
-                {confirmProtected.protectionReason && (
-                  <p className="text-[12px] text-status-warning font-medium">
-                    {t(
-                      `screens.apps.protectReasons.${confirmProtected.protectionReason}`
-                    )}
+      {confirmProtected &&
+        createPortal(
+          <div
+            onClick={(e) => {
+              if (e.target === e.currentTarget) requestCloseConfirm();
+            }}
+            className={`${closingConfirm ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4`}
+          >
+            <div
+              className={`${closingConfirm ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[440px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden`}
+            >
+              <div className="p-5 flex items-start gap-3.5">
+                <div className="w-9 h-9 rounded-full bg-status-warning-bg text-status-warning flex items-center justify-center shrink-0">
+                  <AlertTriangle className="animate-fluent-icon-pop w-5 h-5" strokeWidth={1.75} />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-[15px] font-semibold text-text-primary">
+                    {t("screens.apps.protectConfirmTitle")}
+                  </h3>
+                  <p className="text-[13px] text-text-secondary leading-relaxed">
+                    {t("screens.apps.protectConfirmDesc", {
+                      name: confirmProtected.displayName,
+                    })}
                   </p>
-                )}
+                  {confirmProtected.protectionReason && (
+                    <p className="text-[12px] text-status-warning font-medium">
+                      {t(
+                        `screens.apps.protectReasons.${confirmProtected.protectionReason}`
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="px-5 py-3 border-t border-border-subtle bg-sidebar flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={requestCloseConfirm}
+                  className="px-3.5 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-all duration-150 active:scale-[0.98]"
+                >
+                  {t("screens.apps.cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleRemoveFamily(confirmProtected.packageFamilyName);
+                    requestCloseConfirm();
+                  }}
+                  className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold bg-status-danger text-white hover:opacity-90 transition-all duration-150 active:scale-[0.98]"
+                >
+                  {t("screens.apps.confirmRemoveAnyway")}
+                </button>
               </div>
             </div>
-            <div className="px-5 py-3 border-t border-border-subtle bg-sidebar flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmProtected(null)}
-                className="px-3.5 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle"
-              >
-                {t("screens.apps.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onToggleRemoveFamily(confirmProtected.packageFamilyName);
-                  setConfirmProtected(null);
-                }}
-                className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold bg-status-danger text-white hover:opacity-90"
-              >
-                {t("screens.apps.confirmRemoveAnyway")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

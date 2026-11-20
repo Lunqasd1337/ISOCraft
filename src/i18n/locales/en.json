@@ -213,6 +213,7 @@
     "updates": {
       "title": "Windows Updates",
       "subtitle": "Integrate individual .msu / .cab packages or folders (including 24H2+ Checkpoint CU)",
+      "catalogBtn": "Download from Microsoft Catalog",
       "addFilesBtn": "Add files (.msu / .cab)",
       "addFolderBtn": "Add folder (24H2+)",
       "emptyTitle": "Update queue is empty",
@@ -222,7 +223,32 @@
       "kindFolder": "Folder",
       "packagesCount": "{{count}} package(s)",
       "remove": "Remove",
-      "scanError": "Failed to add update: {{error}}"
+      "scanError": "Failed to add update: {{error}}",
+      "catalogModal": {
+        "title": "Microsoft Update Catalog",
+        "subtitle": "Search and download .msu / .cab updates directly for Windows 11 {{version}} x64",
+        "searchPlaceholder": "Enter KB number (e.g. KB5044284) or search query...",
+        "targetVersionLabel": "Windows 11 version",
+        "searchBtn": "Search",
+        "searching": "Searching Microsoft Update Catalog...",
+        "quickAll": "All for {{version}}",
+        "quickLcu": "Cumulative (LCU) {{version}}",
+        "quickDotNet": ".NET Framework {{version}}",
+        "onlyWin11X64": "install.wim x64 only (hide ARM64, x86, Server, Dynamic Update)",
+        "savePathLabel": "Download folder:",
+        "openCatalogWeb": "Open in browser",
+        "noResults": "No matching updates found. Try adjusting the search query or disabling the architecture filter.",
+        "downloadBtn": "Download to queue",
+        "downloadingBtn": "Downloading...",
+        "queuedBadge": "Queued",
+        "cancelDownload": "Cancel",
+        "cancelling": "Cancelling...",
+        "downloadProgressTitle": "Downloading update package",
+        "fileProgress": "File {{index}} of {{total}}: {{name}}",
+        "sizeUnknown": "Determining size...",
+        "downloadSuccess": "Downloaded {{count}} file(s) and added to queue.",
+        "close": "Close"
+      }
     },
     "drivers": {
       "title": "Drivers (.inf)",

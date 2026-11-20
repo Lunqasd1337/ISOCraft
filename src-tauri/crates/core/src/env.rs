@@ -85,16 +85,16 @@ pub fn check_environment_status(
     }
 }
 
-pub fn find_dism() -> ToolStatus {
-    let sys_dism = PathBuf::from(r"C:\Windows\System32\dism.exe");
-    if sys_dism.exists() {
+fn find_system_or_path(system_path: &str, exe_name: &str) -> ToolStatus {
+    let sys_exe = PathBuf::from(system_path);
+    if sys_exe.exists() {
         return ToolStatus {
             found: true,
-            path: Some(sys_dism.to_string_lossy().to_string()),
+            path: Some(sys_exe.to_string_lossy().to_string()),
             source: "system".to_string(),
         };
     }
-    if let Some(p) = search_path("dism.exe") {
+    if let Some(p) = search_path(exe_name) {
         return ToolStatus {
             found: true,
             path: Some(p.to_string_lossy().to_string()),
@@ -106,6 +106,15 @@ pub fn find_dism() -> ToolStatus {
         path: None,
         source: "missing".to_string(),
     }
+}
+
+pub fn find_dism() -> ToolStatus {
+    find_system_or_path(r"C:\Windows\System32\dism.exe", "dism.exe")
+}
+
+/// Locates the system curl.exe utility used for Microsoft Update Catalog HTTP operations.
+pub fn find_curl() -> ToolStatus {
+    find_system_or_path(r"C:\Windows\System32\curl.exe", "curl.exe")
 }
 
 pub fn find_bundled_or_path(

@@ -44,11 +44,11 @@ export function Titlebar({
 
   const themeIcon =
     theme === "light" ? (
-      <Sun className="w-4 h-4" strokeWidth={1.6} />
+      <Sun key="light" className="w-4 h-4 animate-fluent-icon-spin" strokeWidth={1.6} />
     ) : theme === "dark" ? (
-      <Moon className="w-4 h-4" strokeWidth={1.6} />
+      <Moon key="dark" className="w-4 h-4 animate-fluent-icon-spin" strokeWidth={1.6} />
     ) : (
-      <Monitor className="w-4 h-4" strokeWidth={1.6} />
+      <Monitor key="system" className="w-4 h-4 animate-fluent-icon-spin" strokeWidth={1.6} />
     );
 
   const themeTitle =

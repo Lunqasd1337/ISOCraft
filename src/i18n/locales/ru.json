@@ -213,6 +213,7 @@
     "updates": {
       "title": "Обновления Windows",
       "subtitle": "Интеграция одиночных .msu / .cab и папок с обновлениями (включая 24H2+ Checkpoint CU)",
+      "catalogBtn": "Скачать из каталога Microsoft",
       "addFilesBtn": "Добавить файлы (.msu / .cab)",
       "addFolderBtn": "Добавить папку (24H2+)",
       "emptyTitle": "Очередь обновлений пуста",
@@ -222,7 +223,32 @@
       "kindFolder": "Папка",
       "packagesCount": "{{count}} пакет(ов)",
       "remove": "Убрать",
-      "scanError": "Не удалось добавить обновление: {{error}}"
+      "scanError": "Не удалось добавить обновление: {{error}}",
+      "catalogModal": {
+        "title": "Каталог обновлений Microsoft",
+        "subtitle": "Прямой поиск и загрузка .msu / .cab обновлений для Windows 11 {{version}} x64",
+        "searchPlaceholder": "Введите номер KB (например KB5044284) или запрос...",
+        "targetVersionLabel": "Версия Windows 11",
+        "searchBtn": "Найти",
+        "searching": "Поиск обновлений в каталоге Microsoft...",
+        "quickAll": "Все для {{version}}",
+        "quickLcu": "Накопительные (LCU) {{version}}",
+        "quickDotNet": ".NET Framework {{version}}",
+        "onlyWin11X64": "Только для install.wim x64 (скрывать ARM64, x86, Server, Dynamic Update)",
+        "savePathLabel": "Папка загрузки:",
+        "openCatalogWeb": "Открыть в браузере",
+        "noResults": "По вашему запросу обновлений не найдено. Попробуйте изменить запрос или снять фильтр архитектуры.",
+        "downloadBtn": "Скачать в очередь",
+        "downloadingBtn": "Загрузка...",
+        "queuedBadge": "В очереди",
+        "cancelDownload": "Отменить",
+        "cancelling": "Отмена...",
+        "downloadProgressTitle": "Загрузка пакета обновления",
+        "fileProgress": "Файл {{index}} из {{total}}: {{name}}",
+        "sizeUnknown": "Размер определяется...",
+        "downloadSuccess": "Загружено файлов: {{count}}. Пакеты добавлены в очередь.",
+        "close": "Закрыть"
+      }
     },
     "drivers": {
       "title": "Драйверы (.inf)",

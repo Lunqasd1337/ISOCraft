@@ -1360,6 +1360,8 @@ export function App() {
                 hasValidImage={Boolean(
                   inspection?.isValidWin11ClientX64 && selectedIndex !== null
                 )}
+                editionBuildNumber={selectedEdition?.buildNumber ?? null}
+                workspaceDir={settings.workspaceDir}
                 updatesQueue={updatesQueue}
                 onChangeUpdatesQueue={setUpdatesQueue}
               />

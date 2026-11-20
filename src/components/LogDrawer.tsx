@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -14,6 +14,24 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
   const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      onClose();
+    }, 150);
+  }, [isClosing, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,14 +55,16 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
   };
 
   return (
-    <section className="animate-fluent-drawer h-[200px] shrink-0 bg-surface border-t border-border-subtle flex flex-col">
+    <section
+      className={`${isClosing ? "animate-fluent-drawer-exit" : "animate-fluent-drawer"} h-[200px] shrink-0 bg-surface border-t border-border-subtle flex flex-col`}
+    >
       <div className="h-9 px-4 border-b border-border-subtle flex items-center justify-between bg-sidebar shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-[12.5px] font-semibold text-text-primary">
             {t("logDrawer.title")}
           </span>
           {exportMsg && (
-            <span className="text-[11.5px] text-status-success truncate max-w-[420px]">
+            <span className="animate-fluent-item text-[11.5px] text-status-success truncate max-w-[420px]">
               {exportMsg}
             </span>
           )}
@@ -53,14 +73,14 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
           <button
             type="button"
             onClick={handleExport}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-medium text-text-primary bg-surface border border-border-subtle hover:bg-subtle transition-colors"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-medium text-text-primary bg-surface border border-border-subtle hover:bg-subtle transition-all duration-150 active:scale-[0.98]"
           >
             <Download className="w-3.5 h-3.5" strokeWidth={1.6} />
             <span>{t("logDrawer.export")}</span>
           </button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             title={t("logDrawer.close")}
             className="w-7 h-7 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle transition-colors"
           >

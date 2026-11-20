@@ -96,7 +96,7 @@ export function ImageScreen({
       />
 
       {envStatus?.lowSpaceWarning && (
-        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-status-warning-bg text-status-warning text-[12.5px] font-medium">
+        <div className="animate-fluent-item flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-status-warning-bg text-status-warning text-[12.5px] font-medium">
           <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
           <span>
             {t("screens.image.lowSpaceBanner", {
@@ -229,7 +229,7 @@ export function ImageScreen({
 
           {/* Blocking card if not valid Win11 Client x64 */}
           {!inspection.isValidWin11ClientX64 && (
-            <div className="bg-status-danger-bg border border-status-danger/30 rounded-lg p-5 flex items-start gap-3">
+            <div className="animate-fluent-item bg-status-danger-bg border border-status-danger/30 rounded-lg p-5 flex items-start gap-3">
               <ShieldAlert className="w-5 h-5 text-status-danger shrink-0 mt-0.5" strokeWidth={1.75} />
               <div className="space-y-1">
                 <div className="text-[14px] font-semibold text-status-danger">
@@ -276,14 +276,14 @@ export function ImageScreen({
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span
-                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all duration-150 ${
                             selected
                               ? "border-accent bg-accent"
                               : "border-text-secondary/50 bg-surface"
                           }`}
                         >
                           {selected && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-accent-fg" />
+                            <span className="animate-fluent-icon-pop w-1.5 h-1.5 rounded-full bg-accent-fg" />
                           )}
                         </span>
                         <div className="min-w-0">
@@ -325,7 +325,7 @@ export function ImageScreen({
                           {ed.architecture || "?"}
                         </span>
                         {selected && (
-                          <CheckCircle2 className="w-4 h-4 text-accent" strokeWidth={1.8} />
+                          <CheckCircle2 className="animate-fluent-icon-pop w-4 h-4 text-accent" strokeWidth={1.8} />
                         )}
                       </div>
                     </button>
@@ -337,7 +337,7 @@ export function ImageScreen({
 
           {/* Catalog readiness status */}
           {selectedIndex !== null && (
-            <div className="bg-surface border border-border-subtle rounded-lg px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="animate-fluent-item bg-surface border border-border-subtle rounded-lg px-5 py-3 flex flex-wrap items-center justify-between gap-3">
               {catalogLoading ? (
                 <div className="flex items-center gap-2.5 text-[12.5px] text-text-primary">
                   <Loader2 className="w-4 h-4 animate-spin text-accent" strokeWidth={1.7} />
@@ -350,7 +350,7 @@ export function ImageScreen({
                 </div>
               ) : catalog ? (
                 <div className="flex items-center gap-2 text-[12.5px] text-text-primary">
-                  <CheckCircle2 className="w-4 h-4 text-status-success shrink-0" strokeWidth={1.75} />
+                  <CheckCircle2 className="animate-fluent-icon-pop w-4 h-4 text-status-success shrink-0" strokeWidth={1.75} />
                   <span>
                     {t("screens.image.catalogReady", {
                       appx: catalog.appxPackages.length,

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -68,6 +69,37 @@ export function SettingsModal({
     downloadedBytes: number;
   }>({ percent: null, downloadedBytes: 0 });
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const isUpdateLocked =
+    updateStatus === "downloading" || updateStatus === "installing";
+
+  const requestClose = useCallback(() => {
+    if (isUpdateLocked || isClosing) return;
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      onClose();
+    }, 140);
+  }, [isUpdateLocked, isClosing, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        requestClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [requestClose]);
 
   useEffect(() => {
     let active = true;
@@ -203,7 +235,7 @@ export function SettingsModal({
         oscdimgPath: oscdimgPath.trim() ? oscdimgPath.trim() : null,
       });
       await onRefreshEnv();
-      onClose();
+      requestClose();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -257,9 +289,16 @@ export function SettingsModal({
     </div>
   );
 
-  return (
-    <div className="animate-fluent-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="animate-fluent-modal w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
+      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+    >
+      <div
+        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[600px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
+      >
         {/* Header */}
         <div className="px-5 py-4 border-b border-border-subtle flex items-start justify-between">
           <div>
@@ -272,8 +311,8 @@ export function SettingsModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
-            disabled={updateStatus === "downloading" || updateStatus === "installing"}
+            onClick={requestClose}
+            disabled={isUpdateLocked}
             className="w-7 h-7 rounded-md flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-subtle transition-colors disabled:opacity-40"
           >
             <X className="w-4 h-4" strokeWidth={1.75} />
@@ -449,7 +488,7 @@ export function SettingsModal({
             )}
 
             {updateStatus === "up-to-date" && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-status-success-bg text-status-success text-[12px] font-medium">
+              <div className="animate-fluent-item flex items-center gap-2 px-3 py-2 rounded-md bg-status-success-bg text-status-success text-[12px] font-medium">
                 <CheckCircle2 className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                 <span>
                   {t("settings.updatesUpToDate", {
@@ -460,7 +499,7 @@ export function SettingsModal({
             )}
 
             {updateStatus === "available" && availableUpdate && (
-              <div className="p-3 rounded-md bg-subtle border border-accent/40 space-y-2.5">
+              <div className="animate-fluent-item p-3 rounded-md bg-subtle border border-accent/40 space-y-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <ArrowUpCircle
@@ -497,7 +536,7 @@ export function SettingsModal({
             )}
 
             {(updateStatus === "downloading" || updateStatus === "installing") && (
-              <div className="p-3 rounded-md bg-subtle border border-border-subtle space-y-2">
+              <div className="animate-fluent-item p-3 rounded-md bg-subtle border border-border-subtle space-y-2">
                 <div className="flex items-center justify-between text-[12px] font-medium text-text-primary">
                   <span>
                     {updateStatus === "installing"
@@ -527,7 +566,7 @@ export function SettingsModal({
             )}
 
             {updateStatus === "error" && updateError && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
+              <div className="animate-fluent-item flex items-start gap-2 px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12px]">
                 <XCircle className="w-4 h-4 shrink-0 mt-0.5" strokeWidth={1.75} />
                 <span className="break-words">
                   {t("settings.updatesError", { error: updateError })}
@@ -537,7 +576,7 @@ export function SettingsModal({
           </div>
 
           {error && (
-            <div className="px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12.5px]">
+            <div className="animate-fluent-item px-3 py-2 rounded-md bg-status-danger-bg text-status-danger text-[12.5px]">
               {error}
             </div>
           )}
@@ -553,8 +592,8 @@ export function SettingsModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              disabled={updateStatus === "downloading" || updateStatus === "installing"}
+              onClick={requestClose}
+              disabled={isUpdateLocked}
               className="px-4 py-1.5 rounded-md text-[13px] font-medium bg-surface border border-border-subtle text-text-primary hover:bg-subtle transition-colors disabled:opacity-40"
             >
               {t("settings.cancel")}
@@ -562,11 +601,7 @@ export function SettingsModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={
-                saving ||
-                updateStatus === "downloading" ||
-                updateStatus === "installing"
-              }
+              disabled={saving || isUpdateLocked}
               className="px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent hover:bg-accent-hover text-accent-fg transition-colors disabled:opacity-50"
             >
               {t("settings.save")}
@@ -574,6 +609,7 @@ export function SettingsModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
