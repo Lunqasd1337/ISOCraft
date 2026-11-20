@@ -1,0 +1,37 @@
+name: "Предложение функции / Feature Request"
+description: "Предложить новую функцию или улучшение интерфейса / Suggest a new feature, UI improvement, or workflow enhancement"
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Раздел программы / Area"
+      options:
+        - "Образ (Image Inspection)"
+        - "Приложения Appx / MSIX (Apps)"
+        - "Компоненты и Capabilities (Features)"
+        - "Обновления и очистка (Updates & Cleanup)"
+        - "Драйверы (Drivers)"
+        - "Оффлайн-реестр (Offline Registry)"
+        - "Файлы (Custom Files)"
+        - "Сборка, ISO и пресеты (Build / ISO / Presets)"
+        - "Настройки, автообновление и интерфейс (Settings / Updater / UI)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Какую задачу это решает? / Problem or Use Case"
+      description: "Опишите сценарий использования или неудобство, которое хочется улучшить / Describe the workflow or pain point you want to improve."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Предлагаемое решение / Proposed Solution"
+      description: "Как, по-вашему, эта функция должна работать в ISOCraft? / How would you like this feature to work in ISOCraft?"
+    validations:
+      required: false
