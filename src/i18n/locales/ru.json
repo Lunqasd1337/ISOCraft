@@ -351,6 +351,8 @@
       "stepCounter": "Шаг {{step}} из {{total}}",
       "cancelBuild": "Отменить сборку",
       "exportDiagnostics": "Экспорт диагностики",
+      "diagnosticsExported": "Диагностика сохранена: {{path}}",
+      "diagnosticsExportError": "Ошибка экспорта диагностики: {{error}}",
       "buildDone": "Готово: {{path}}",
       "buildError": "Ошибка сборки: {{error}}",
       "startBuildBtn": "Собрать образ",

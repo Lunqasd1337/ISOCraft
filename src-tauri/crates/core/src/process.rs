@@ -2,17 +2,29 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Notify;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct ProcessGuard {
     active_operation: AtomicBool,
-    cancel_requested: AtomicBool,
+    cancel_requested: Arc<AtomicBool>,
     tracked_pids: Mutex<HashSet<u32>>,
+    idle_notify: Notify,
+}
+
+pub struct BusyScope<'a> {
+    guard: &'a ProcessGuard,
+}
+
+impl<'a> Drop for BusyScope<'a> {
+    fn drop(&mut self) {
+        self.guard.set_busy(false);
+    }
 }
 
 impl Default for ProcessGuard {
@@ -25,19 +37,43 @@ impl ProcessGuard {
     pub fn new() -> Self {
         Self {
             active_operation: AtomicBool::new(false),
-            cancel_requested: AtomicBool::new(false),
+            cancel_requested: Arc::new(AtomicBool::new(false)),
             tracked_pids: Mutex::new(HashSet::new()),
+            idle_notify: Notify::new(),
         }
+    }
+
+    pub fn cancel_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel_requested)
     }
 
     pub fn is_busy(&self) -> bool {
         self.active_operation.load(Ordering::SeqCst)
     }
 
+    pub fn enter_busy(&self) -> BusyScope<'_> {
+        self.set_busy(true);
+        BusyScope { guard: self }
+    }
+
     pub fn set_busy(&self, busy: bool) {
-        self.active_operation.store(busy, Ordering::SeqCst);
-        if !busy {
+        if busy {
             self.cancel_requested.store(false, Ordering::SeqCst);
+            self.active_operation.store(true, Ordering::SeqCst);
+        } else {
+            self.active_operation.store(false, Ordering::SeqCst);
+            self.cancel_requested.store(false, Ordering::SeqCst);
+            self.idle_notify.notify_waiters();
+        }
+    }
+
+    pub async fn wait_until_idle(&self) {
+        loop {
+            let notified = self.idle_notify.notified();
+            if !self.is_busy() {
+                return;
+            }
+            notified.await;
         }
     }
 
@@ -61,6 +97,9 @@ impl ProcessGuard {
         }
     }
 
+    /// Signals cancellation and terminates all tracked child process trees.
+    /// Does NOT clear `active_operation` so the owning operation can finish its
+    /// unmount/cleanup path before marking the guard idle.
     pub fn kill_all_tracked_trees(&self) {
         self.request_cancel();
         let pids: Vec<u32> = self
@@ -76,7 +115,6 @@ impl ProcessGuard {
         if let Ok(mut guard) = self.tracked_pids.lock() {
             guard.clear();
         }
-        self.set_busy(false);
     }
 }
 
@@ -237,3 +275,38 @@ pub fn kill_process_tree(root_pid: u32) {
 
 #[cfg(not(windows))]
 pub fn kill_process_tree(_root_pid: u32) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn kill_keeps_busy_until_scope_drops_and_notifies_waiters() {
+        let guard = Arc::new(ProcessGuard::new());
+        let scope = guard.enter_busy();
+        assert!(guard.is_busy());
+        assert!(!guard.is_cancel_requested());
+
+        guard.kill_all_tracked_trees();
+        assert!(guard.is_busy());
+        assert!(guard.is_cancel_requested());
+
+        let waiter_guard = Arc::clone(&guard);
+        let waiter = tokio::spawn(async move {
+            waiter_guard.wait_until_idle().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!waiter.is_finished());
+
+        drop(scope);
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("wait_until_idle timed out")
+            .unwrap();
+        assert!(!guard.is_busy());
+        assert!(!guard.is_cancel_requested());
+    }
+}

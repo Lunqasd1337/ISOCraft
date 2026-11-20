@@ -4,6 +4,7 @@ use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -271,16 +272,31 @@ pub fn clear_readonly_recursive(root: &Path) -> Result<usize, String> {
     Ok(cleared)
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<u64, String> {
+fn copy_dir_recursive<C, P>(
+    src: &Path,
+    dst: &Path,
+    is_cancelled: C,
+    mut on_progress: P,
+) -> Result<u64, String>
+where
+    C: Fn() -> bool,
+    P: FnMut(u64),
+{
     fs::create_dir_all(dst)
         .map_err(|e| format!("Failed to create directory '{}': {e}", dst.display()))?;
     let mut total_files = 0u64;
     let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
 
     while let Some((cur_src, cur_dst)) = stack.pop() {
+        if is_cancelled() {
+            return Err("Operation cancelled by user.".to_string());
+        }
         let entries = fs::read_dir(&cur_src)
             .map_err(|e| format!("Failed to list '{}': {e}", cur_src.display()))?;
         for entry in entries {
+            if is_cancelled() {
+                return Err("Operation cancelled by user.".to_string());
+            }
             let entry = entry.map_err(|e| format!("Failed reading dir entry: {e}"))?;
             let src_path = entry.path();
             let dst_path = cur_dst.join(entry.file_name());
@@ -299,9 +315,13 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<u64, String> {
                     )
                 })?;
                 total_files += 1;
+                if total_files % 50 == 0 {
+                    on_progress(total_files);
+                }
             }
         }
     }
+    on_progress(total_files);
     Ok(total_files)
 }
 
@@ -333,42 +353,43 @@ pub fn escape_ps_single_quoted(s: &str) -> String {
 }
 
 pub async fn run_powershell_script(script: &str) -> Result<String, String> {
+    run_powershell_script_tracked(script, None).await
+}
+
+pub async fn run_powershell_script_tracked(
+    script: &str,
+    guard: Option<&ProcessGuard>,
+) -> Result<String, String> {
     let full_script = format!(
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); {script}"
     );
-    let mut cmd = Command::new("powershell.exe");
-    cmd.args([
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &full_script,
-    ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    let args = vec![
+        "-NoLogo".to_string(),
+        "-NoProfile".to_string(),
+        "-NonInteractive".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-Command".to_string(),
+        full_script,
+    ];
+    let out = run_tracked_command("powershell.exe", &args, None, guard, |_| {}).await?;
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute powershell.exe: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = decode_text_bytes(&output.stderr);
-        let stdout = decode_text_bytes(&output.stdout);
+    if out.exit_code != 0 {
         return Err(format!(
-            "PowerShell failed (code {:?}): {} {}",
-            output.status.code(),
-            stderr.trim(),
-            stdout.trim()
+            "PowerShell failed (code {}): {} {}",
+            out.exit_code,
+            out.stderr.trim(),
+            out.stdout.trim()
         ));
     }
 
-    Ok(decode_text_bytes(&output.stdout))
+    Ok(out.stdout)
 }
 
-pub async fn mount_iso_drive_letter(iso_path: &Path) -> Result<String, String> {
+pub async fn mount_iso_drive_letter(
+    iso_path: &Path,
+    guard: Option<&ProcessGuard>,
+) -> Result<String, String> {
     let escaped = escape_ps_single_quoted(&iso_path.to_string_lossy());
     let script = format!(
         "$img = Mount-DiskImage -ImagePath '{escaped}' -PassThru; \
@@ -376,7 +397,7 @@ pub async fn mount_iso_drive_letter(iso_path: &Path) -> Result<String, String> {
          if (-not $vol) {{ Dismount-DiskImage -ImagePath '{escaped}' -ErrorAction SilentlyContinue; throw 'Mounted ISO has no drive letter.' }}; \
          Write-Output $vol.DriveLetter"
     );
-    let out = run_powershell_script(&script).await?;
+    let out = run_powershell_script_tracked(&script, guard).await?;
     let letter = out
         .trim()
         .chars()
@@ -471,7 +492,7 @@ pub async fn inspect_image(
     }
 
     // ISO flow: mount, inspect sources\install.wim / install.esd, always dismount
-    let drive = mount_iso_drive_letter(source_path).await?;
+    let drive = mount_iso_drive_letter(source_path, None).await?;
     let drive_root = PathBuf::from(format!("{drive}\\"));
 
     let inspect_res = async {
@@ -550,14 +571,32 @@ where
     fs::create_dir_all(dest_iso_root).map_err(|e| format!("Failed creating iso_root: {e}"))?;
 
     on_log(&format!("Mounting ISO: {}", iso_path.display()));
-    let drive = mount_iso_drive_letter(iso_path).await?;
+    let drive = mount_iso_drive_letter(iso_path, guard).await?;
     let drive_root = PathBuf::from(format!("{drive}\\"));
 
+    let cancel_flag = guard.map(|g| g.cancel_handle());
     let copy_result = tokio::task::spawn_blocking({
         let src = drive_root.clone();
         let dst = dest_iso_root.to_path_buf();
         move || -> Result<(u64, usize), String> {
-            let copied = copy_dir_recursive(&src, &dst)?;
+            let copied = copy_dir_recursive(
+                &src,
+                &dst,
+                || {
+                    cancel_flag
+                        .as_ref()
+                        .map(|f| f.load(Ordering::SeqCst))
+                        .unwrap_or(false)
+                },
+                |_| {},
+            )?;
+            if cancel_flag
+                .as_ref()
+                .map(|f| f.load(Ordering::SeqCst))
+                .unwrap_or(false)
+            {
+                return Err("Operation cancelled by user.".to_string());
+            }
             let cleared = clear_readonly_recursive(&dst)?;
             Ok((copied, cleared))
         }

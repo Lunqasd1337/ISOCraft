@@ -5,6 +5,9 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static WORKSPACE_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -84,6 +87,9 @@ pub fn write_workspace_state(workspace_dir: &Path, state: &WorkspaceState) -> Re
 }
 
 fn register_mount_in_state(workspace_dir: &Path, mount_dir: &Path) -> Result<(), String> {
+    let _lock = WORKSPACE_STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut state = read_workspace_state(workspace_dir);
     let m = mount_dir.to_string_lossy().to_string();
     if !state.active_mounts.contains(&m) {
@@ -94,6 +100,9 @@ fn register_mount_in_state(workspace_dir: &Path, mount_dir: &Path) -> Result<(),
 }
 
 fn unregister_mount_in_state(workspace_dir: &Path, mount_dir: &Path) -> Result<(), String> {
+    let _lock = WORKSPACE_STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut state = read_workspace_state(workspace_dir);
     let target = mount_dir.to_string_lossy().to_string();
     state
@@ -104,6 +113,9 @@ fn unregister_mount_in_state(workspace_dir: &Path, mount_dir: &Path) -> Result<(
 }
 
 pub fn register_hive_in_state(workspace_dir: &Path, hive_name: &str) -> Result<(), String> {
+    let _lock = WORKSPACE_STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut state = read_workspace_state(workspace_dir);
     if !state
         .loaded_hives
@@ -117,6 +129,9 @@ pub fn register_hive_in_state(workspace_dir: &Path, hive_name: &str) -> Result<(
 }
 
 pub fn unregister_hive_in_state(workspace_dir: &Path, hive_name: &str) -> Result<(), String> {
+    let _lock = WORKSPACE_STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut state = read_workspace_state(workspace_dir);
     state
         .loaded_hives
@@ -339,8 +354,20 @@ where
     Ok(())
 }
 
-/// Packages a single-index `install.wim` into the requested output format (`wim`, `esd`, or `swm`).
-/// Removes stale `install.wim` / `install.esd` / `install*.swm` files in `dest_dir` first.
+pub fn is_swm_part_for_stem(file_name: &str, stem: &str) -> bool {
+    let lower_name = file_name.to_ascii_lowercase();
+    let lower_stem = stem.to_ascii_lowercase();
+    let Some(rest) = lower_name.strip_prefix(&lower_stem) else {
+        return false;
+    };
+    let Some(num_part) = rest.strip_suffix(".swm") else {
+        return false;
+    };
+    num_part.is_empty() || num_part.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Packages a single-index `install.wim` into `dest_dir` with standard `install.{wim,esd,swm}` naming
+/// (used for `iso_root\sources`), removing stale `install.*` artifacts in `dest_dir` first.
 pub async fn package_install_image<F>(
     wimlib_path: &Path,
     src_wim: &Path,
@@ -348,11 +375,74 @@ pub async fn package_install_image<F>(
     format: &InstallOutputFormat,
     split_size_mb: u32,
     guard: Option<&ProcessGuard>,
+    on_log: F,
+) -> Result<Vec<PathBuf>, String>
+where
+    F: FnMut(&str) + Send,
+{
+    let target_file = match format {
+        InstallOutputFormat::Wim => dest_dir.join("install.wim"),
+        InstallOutputFormat::Esd => dest_dir.join("install.esd"),
+        InstallOutputFormat::Swm => dest_dir.join("install.swm"),
+    };
+    package_install_image_impl(
+        wimlib_path,
+        src_wim,
+        &target_file,
+        format,
+        split_size_mb,
+        true,
+        guard,
+        on_log,
+    )
+    .await
+}
+
+/// Packages a single-index `install.wim` directly to `target_file` (used for standalone image export)
+/// without removing unrelated `install.*` files in the destination directory.
+pub async fn package_install_image_to_path<F>(
+    wimlib_path: &Path,
+    src_wim: &Path,
+    target_file: &Path,
+    format: &InstallOutputFormat,
+    split_size_mb: u32,
+    guard: Option<&ProcessGuard>,
+    on_log: F,
+) -> Result<Vec<PathBuf>, String>
+where
+    F: FnMut(&str) + Send,
+{
+    package_install_image_impl(
+        wimlib_path,
+        src_wim,
+        target_file,
+        format,
+        split_size_mb,
+        false,
+        guard,
+        on_log,
+    )
+    .await
+}
+
+async fn package_install_image_impl<F>(
+    wimlib_path: &Path,
+    src_wim: &Path,
+    target_file: &Path,
+    format: &InstallOutputFormat,
+    split_size_mb: u32,
+    clean_all_install_artifacts: bool,
+    guard: Option<&ProcessGuard>,
     mut on_log: F,
 ) -> Result<Vec<PathBuf>, String>
 where
     F: FnMut(&str) + Send,
 {
+    let dest_dir = target_file
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
     fs::create_dir_all(dest_dir).map_err(|e| {
         format!(
             "Failed creating destination dir '{}': {e}",
@@ -360,32 +450,50 @@ where
         )
     })?;
 
-    // Clean any pre-existing install.* artifacts in dest_dir (when packaging inside iso_root\sources)
-    if let Ok(entries) = fs::read_dir(dest_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            let is_install_art = name == "install.wim"
-                || name == "install.esd"
-                || (name.starts_with("install") && name.ends_with(".swm"));
-            if is_install_art && entry.path() != src_wim {
-                let _ = fs::remove_file(entry.path());
+    let stem = target_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("install");
+
+    if clean_all_install_artifacts {
+        // Clean any pre-existing install.* artifacts in dest_dir (when packaging inside iso_root\sources)
+        if let Ok(entries) = fs::read_dir(dest_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                let is_install_art = name == "install.wim"
+                    || name == "install.esd"
+                    || is_swm_part_for_stem(&name, "install");
+                if is_install_art && entry.path() != src_wim {
+                    let _ = fs::remove_file(entry.path());
+                }
             }
         }
+    } else if *format == InstallOutputFormat::Swm {
+        if let Ok(entries) = fs::read_dir(dest_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if is_swm_part_for_stem(&name, stem) && entry.path() != src_wim {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    } else if target_file.exists() && target_file != src_wim {
+        let _ = fs::remove_file(target_file);
     }
 
     match format {
         InstallOutputFormat::Wim => {
-            let dest_wim = dest_dir.join("install.wim");
-            if src_wim != dest_wim {
+            if src_wim != target_file {
                 on_log(&format!(
-                    "Optimizing/exporting install.wim to '{}'...",
-                    dest_wim.display()
+                    "Optimizing/exporting WIM image to '{}'...",
+                    target_file.display()
                 ));
                 let args = vec![
                     "export".to_string(),
                     src_wim.to_string_lossy().to_string(),
                     "1".to_string(),
-                    dest_wim.to_string_lossy().to_string(),
+                    target_file.to_string_lossy().to_string(),
                     "--compress=LZX".to_string(),
                 ];
                 run_wimlib_command(wimlib_path, &args, guard, |l| {
@@ -395,19 +503,18 @@ where
                 })
                 .await?;
             }
-            Ok(vec![dest_wim])
+            Ok(vec![target_file.to_path_buf()])
         }
         InstallOutputFormat::Esd => {
-            let dest_esd = dest_dir.join("install.esd");
             on_log(&format!(
-                "Compressing to install.esd (LZMS solid) at '{}'...",
-                dest_esd.display()
+                "Compressing to ESD (LZMS solid) at '{}'...",
+                target_file.display()
             ));
             let args = vec![
                 "export".to_string(),
                 src_wim.to_string_lossy().to_string(),
                 "1".to_string(),
-                dest_esd.to_string_lossy().to_string(),
+                target_file.to_string_lossy().to_string(),
                 "--compress=LZMS".to_string(),
                 "--solid".to_string(),
             ];
@@ -417,11 +524,11 @@ where
                 }
             })
             .await?;
-            Ok(vec![dest_esd])
+            Ok(vec![target_file.to_path_buf()])
         }
         InstallOutputFormat::Swm => {
             let size = split_size_mb.max(100);
-            let base_swm = dest_dir.join("install.swm");
+            let base_swm = dest_dir.join(format!("{stem}.swm"));
             on_log(&format!(
                 "Splitting install.wim into {size} MB parts at '{}'...",
                 base_swm.display()
@@ -442,8 +549,8 @@ where
             let mut parts = Vec::new();
             if let Ok(entries) = fs::read_dir(dest_dir) {
                 for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-                    if name.starts_with("install") && name.ends_with(".swm") {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if is_swm_part_for_stem(&name, stem) {
                         parts.push(entry.path());
                     }
                 }
@@ -529,5 +636,15 @@ mod tests {
         );
         assert_eq!(parse_wimlib_progress("Invalid (120%) percentage"), None);
         assert_eq!(parse_wimlib_progress("Finished."), None);
+    }
+
+    #[test]
+    fn matches_swm_parts_by_stem_strictly() {
+        assert!(is_swm_part_for_stem("install.swm", "install"));
+        assert!(is_swm_part_for_stem("install2.swm", "install"));
+        assert!(is_swm_part_for_stem("Win11Pro12.SWM", "Win11Pro"));
+        assert!(!is_swm_part_for_stem("install_backup.swm", "install"));
+        assert!(!is_swm_part_for_stem("install.wim", "install"));
+        assert!(!is_swm_part_for_stem("other2.swm", "install"));
     }
 }

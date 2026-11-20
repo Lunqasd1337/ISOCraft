@@ -93,6 +93,9 @@ export function BuildScreen({
 }: BuildScreenProps) {
   const { t } = useTranslation();
   const [xmlStatus, setXmlStatus] = useState<AutounattendValidation | null>(null);
+  const [diagStatus, setDiagStatus] = useState<{ ok: boolean; text: string } | null>(
+    null
+  );
 
   useEffect(() => {
     let active = true;
@@ -154,12 +157,23 @@ export function BuildScreen({
   };
 
   const handleExportDiagnostics = async () => {
-    const dest = await save({
-      defaultPath: "isocraft-diagnostics.log",
-      filters: [{ name: "Log files", extensions: ["log", "txt"] }],
-    });
-    if (dest) {
-      await invoke("export_diagnostics", { destPath: dest });
+    setDiagStatus(null);
+    try {
+      const dest = await save({
+        defaultPath: "isocraft-diagnostics.log",
+        filters: [{ name: "Log files", extensions: ["log", "txt"] }],
+      });
+      if (!dest) return;
+      const savedPath = await invoke<string>("export_diagnostics", { destPath: dest });
+      setDiagStatus({
+        ok: true,
+        text: t("screens.build.diagnosticsExported", { path: savedPath }),
+      });
+    } catch (err) {
+      setDiagStatus({
+        ok: false,
+        text: t("screens.build.diagnosticsExportError", { error: String(err) }),
+      });
     }
   };
 
@@ -543,6 +557,25 @@ export function BuildScreen({
                 {buildProgress?.message ?? "..."}
               </div>
 
+              {diagStatus && (
+                <div
+                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md text-[12px] ${
+                    diagStatus.ok
+                      ? "bg-status-success-bg text-status-success"
+                      : "bg-status-danger-bg text-status-danger"
+                  }`}
+                >
+                  <span className="break-all">{diagStatus.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDiagStatus(null)}
+                    className="p-0.5 rounded hover:bg-subtle shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" strokeWidth={1.7} />
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
@@ -583,6 +616,25 @@ export function BuildScreen({
                   >
                     <Download className="w-3 h-3" strokeWidth={1.6} />
                     {t("screens.build.exportDiagnostics")}
+                  </button>
+                </div>
+              )}
+
+              {diagStatus && (
+                <div
+                  className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-md text-[12px] ${
+                    diagStatus.ok
+                      ? "bg-status-success-bg text-status-success"
+                      : "bg-status-danger-bg text-status-danger"
+                  }`}
+                >
+                  <span className="break-all">{diagStatus.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDiagStatus(null)}
+                    className="p-0.5 rounded hover:bg-subtle shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" strokeWidth={1.7} />
                   </button>
                 </div>
               )}

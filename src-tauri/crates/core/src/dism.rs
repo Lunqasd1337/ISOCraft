@@ -1,8 +1,8 @@
 use crate::apps::{extract_package_family_name, protected_appx_reason, ProvisionedAppxInfo};
 use crate::features::{WindowsCapabilityInfo, WindowsFeatureInfo};
 use crate::image::{
-    dismount_iso, escape_ps_single_quoted, mount_iso_drive_letter, run_powershell_script,
-    SourceKind,
+    dismount_iso, escape_ps_single_quoted, mount_iso_drive_letter,
+    run_powershell_script_tracked, SourceKind,
 };
 use crate::process::ProcessGuard;
 use crate::wim::{export_single_edition, mount_wim, unmount_wim};
@@ -161,18 +161,32 @@ pub fn parse_ps_capabilities_json(json_str: &str) -> Result<Vec<WindowsCapabilit
 }
 
 pub async fn query_mounted_appx_list(mount_dir: &Path) -> Result<Vec<ProvisionedAppxInfo>, String> {
+    query_mounted_appx_list_tracked(mount_dir, None).await
+}
+
+pub async fn query_mounted_appx_list_tracked(
+    mount_dir: &Path,
+    guard: Option<&ProcessGuard>,
+) -> Result<Vec<ProvisionedAppxInfo>, String> {
     let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
     let script = format!(
         "Import-Module Dism -ErrorAction Stop; \
          $items = @(Get-AppxProvisionedPackage -Path '{esc}' | Select-Object DisplayName, PackageName, @{{N='Version';E={{$_.Version.ToString()}}}}, PublisherId); \
          ConvertTo-Json -InputObject $items -Depth 4 -Compress"
     );
-    let json = run_powershell_script(&script).await?;
+    let json = run_powershell_script_tracked(&script, guard).await?;
     parse_ps_appx_json(&json)
 }
 
 pub async fn query_mounted_features_list(
     mount_dir: &Path,
+) -> Result<Vec<WindowsFeatureInfo>, String> {
+    query_mounted_features_list_tracked(mount_dir, None).await
+}
+
+pub async fn query_mounted_features_list_tracked(
+    mount_dir: &Path,
+    guard: Option<&ProcessGuard>,
 ) -> Result<Vec<WindowsFeatureInfo>, String> {
     let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
     let script = format!(
@@ -180,12 +194,19 @@ pub async fn query_mounted_features_list(
          $items = @(Get-WindowsOptionalFeature -Path '{esc}' | Select-Object FeatureName, @{{N='State';E={{$_.State.ToString()}}}}); \
          ConvertTo-Json -InputObject $items -Depth 3 -Compress"
     );
-    let json = run_powershell_script(&script).await?;
+    let json = run_powershell_script_tracked(&script, guard).await?;
     parse_ps_features_json(&json)
 }
 
 pub async fn query_mounted_capabilities_list(
     mount_dir: &Path,
+) -> Result<Vec<WindowsCapabilityInfo>, String> {
+    query_mounted_capabilities_list_tracked(mount_dir, None).await
+}
+
+pub async fn query_mounted_capabilities_list_tracked(
+    mount_dir: &Path,
+    guard: Option<&ProcessGuard>,
 ) -> Result<Vec<WindowsCapabilityInfo>, String> {
     let esc = escape_ps_single_quoted(&mount_dir.to_string_lossy());
     let script = format!(
@@ -193,7 +214,7 @@ pub async fn query_mounted_capabilities_list(
          $items = @(Get-WindowsCapability -Path '{esc}' | Select-Object Name, @{{N='State';E={{$_.State.ToString()}}}}); \
          ConvertTo-Json -InputObject $items -Depth 3 -Compress"
     );
-    let json = run_powershell_script(&script).await?;
+    let json = run_powershell_script_tracked(&script, guard).await?;
     parse_ps_capabilities_json(&json)
 }
 
@@ -256,7 +277,7 @@ where
                     "Temporarily mounting ISO for catalog inspection: {}",
                     source_path.display()
                 ));
-                let drive = mount_iso_drive_letter(source_path).await?;
+                let drive = mount_iso_drive_letter(source_path, guard).await?;
                 mounted_iso = true;
                 let drive_root = PathBuf::from(format!("{drive}\\"));
                 let install_wim = drive_root.join("sources").join("install.wim");
@@ -320,11 +341,12 @@ where
 
         let query_res: Result<ImageCatalog, String> = async {
             on_log("Querying Provisioned Appx packages via PowerShell Dism...");
-            let appx_packages = query_mounted_appx_list(&ro_mount_dir).await?;
+            let appx_packages = query_mounted_appx_list_tracked(&ro_mount_dir, guard).await?;
             on_log("Querying Optional Features via PowerShell Dism...");
-            let features = query_mounted_features_list(&ro_mount_dir).await?;
+            let features = query_mounted_features_list_tracked(&ro_mount_dir, guard).await?;
             on_log("Querying Windows Capabilities via PowerShell Dism...");
-            let capabilities = query_mounted_capabilities_list(&ro_mount_dir).await?;
+            let capabilities =
+                query_mounted_capabilities_list_tracked(&ro_mount_dir, guard).await?;
 
             Ok(ImageCatalog {
                 source_path: source_path.to_string_lossy().to_string(),

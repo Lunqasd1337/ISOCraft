@@ -351,6 +351,8 @@
       "stepCounter": "Step {{step}} of {{total}}",
       "cancelBuild": "Cancel Build",
       "exportDiagnostics": "Export Diagnostics",
+      "diagnosticsExported": "Diagnostics exported: {{path}}",
+      "diagnosticsExportError": "Failed exporting diagnostics: {{error}}",
       "buildDone": "Completed: {{path}}",
       "buildError": "Build failed: {{error}}",
       "startBuildBtn": "Build Image",
