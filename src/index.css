@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-canvas-rgb: 243 243 243;
+  --bg-sidebar-rgb: 247 247 247;
+  --bg-surface-rgb: 255 255 255;
+  --bg-subtle: rgba(0, 0, 0, 0.04);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --text-primary-rgb: 27 27 27;
+  --text-secondary-rgb: 93 93 93;
+  --accent-rgb: 0 103 192;
+  --accent-hover-rgb: 0 95 184;
+  --accent-fg-rgb: 255 255 255;
+  --status-success-rgb: 15 123 15;
+  --status-success-bg: #dff6dd;
+  --status-warning-rgb: 157 93 0;
+  --status-warning-bg: #fff4ce;
+  --status-danger-rgb: 196 43 28;
+  --status-danger-bg: #fde7e9;
+  --switch-off-bg: rgba(0, 0, 0, 0.05);
+  --switch-off-border: rgba(0, 0, 0, 0.45);
+}
+
+html.dark {
+  --bg-canvas-rgb: 32 32 32;
+  --bg-sidebar-rgb: 28 28 28;
+  --bg-surface-rgb: 43 43 43;
+  --bg-subtle: rgba(255, 255, 255, 0.05);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --text-primary-rgb: 255 255 255;
+  --text-secondary-rgb: 166 166 166;
+  --accent-rgb: 76 194 255;
+  --accent-hover-rgb: 71 177 232;
+  --accent-fg-rgb: 0 0 0;
+  --status-success-rgb: 108 203 95;
+  --status-success-bg: rgba(108, 203, 95, 0.12);
+  --status-warning-rgb: 252 225 0;
+  --status-warning-bg: rgba(252, 225, 0, 0.12);
+  --status-danger-rgb: 255 153 164;
+  --status-danger-bg: rgba(255, 153, 164, 0.12);
+  --switch-off-bg: rgba(255, 255, 255, 0.06);
+  --switch-off-border: rgba(255, 255, 255, 0.52);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  background-color: rgb(var(--bg-canvas-rgb));
+  color: rgb(var(--text-primary-rgb));
+  transition: background-color 180ms ease, color 150ms ease;
+}
+
+@keyframes fluent-screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fluent-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fluent-modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fluent-drawer-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fluent-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fluent-icon-pop {
+  0% {
+    transform: scale(0.84);
+  }
+  55% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fluent-icon-spin {
+  0% {
+    transform: scale(0.88) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.12) rotate(180deg);
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+@keyframes fluent-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+}
+
+@layer utilities {
+  .animate-fluent-screen {
+    animation: fluent-screen-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-backdrop {
+    animation: fluent-fade-in 150ms ease-out both;
+  }
+  .animate-fluent-modal {
+    animation: fluent-modal-enter 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-drawer {
+    animation: fluent-drawer-up 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-item {
+    animation: fluent-item-enter 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-icon-pop {
+    animation: fluent-icon-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-fluent-icon-spin {
+    animation: fluent-icon-spin 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-pill {
+    animation: fluent-pill-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fluent-screen,
+  .animate-fluent-backdrop,
+  .animate-fluent-modal,
+  .animate-fluent-drawer,
+  .animate-fluent-item,
+  .animate-fluent-icon-pop,
+  .animate-fluent-icon-spin,
+  .animate-fluent-pill {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Fluent thin scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
+}
