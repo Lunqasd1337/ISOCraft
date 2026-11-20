@@ -42,7 +42,7 @@ jobs:
 
       - name: Run core unit tests
         working-directory: src-tauri
-        run: cargo test -p isocraft-core --offline
+        run: cargo test -p isocraft-core --locked
 
       - name: Fetch bundled external tools (wimlib & xorriso)
         shell: pwsh

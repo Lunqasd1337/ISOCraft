@@ -44,8 +44,8 @@ jobs:
 
       - name: Check Rust workspace
         working-directory: src-tauri
-        run: cargo check --workspace --offline
+        run: cargo check --workspace --locked
 
       - name: Run core unit tests
         working-directory: src-tauri
-        run: cargo test -p isocraft-core --offline
+        run: cargo test -p isocraft-core --locked
