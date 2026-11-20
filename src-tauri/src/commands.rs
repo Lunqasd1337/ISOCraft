@@ -29,7 +29,7 @@ use isocraft_core::updates::{
 };
 use isocraft_core::wim::{read_workspace_state, recover_workspace_async};
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub(crate) fn check_environment(

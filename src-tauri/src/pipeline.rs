@@ -11,7 +11,7 @@ use isocraft_core::features::{
 };
 use isocraft_core::files::{apply_file_injections, validate_file_injection_item, FileTarget};
 use isocraft_core::image::{extract_iso_to_workspace, SourceKind};
-use isocraft_core::iso::{build_bootable_iso, validate_autounattend, IsoBuildOptions};
+use isocraft_core::iso::{build_bootable_iso, IsoBuildOptions};
 use isocraft_core::registry::apply_reg_files_to_mount_cancellable;
 use isocraft_core::updates::{apply_updates, run_component_cleanup};
 use isocraft_core::wim::{
