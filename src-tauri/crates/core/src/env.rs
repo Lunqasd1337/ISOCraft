@@ -92,19 +92,51 @@ fn windows_root_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
 }
 
+/// Strips the Windows `\\?\` verbatim path prefix when the resulting path is a
+/// standard drive or UNC path shorter than the legacy MAX_PATH limit (260 UTF-16
+/// code units), keeping device paths and long paths intact.
+pub fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+    const MAX_PATH_UTF16: usize = 260;
+    let Some(raw) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    let Some(rest) = raw.strip_prefix(r"\\?\") else {
+        return path.to_path_buf();
+    };
+    if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(r"UNC\") {
+        let unc = format!(r"\\{}", &rest[4..]);
+        if unc.encode_utf16().count() < MAX_PATH_UTF16 {
+            return PathBuf::from(unc);
+        }
+        return path.to_path_buf();
+    }
+    let bytes = rest.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+        && rest.encode_utf16().count() < MAX_PATH_UTF16
+    {
+        return PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
 fn find_system_binary(sys_exe: PathBuf, exe_name: &str) -> ToolStatus {
     if sys_exe.is_file() {
+        let clean = strip_windows_verbatim_prefix(&sys_exe);
         return ToolStatus {
             found: true,
-            path: Some(sys_exe.to_string_lossy().to_string()),
+            path: Some(clean.to_string_lossy().to_string()),
             source: "system".to_string(),
         };
     }
     #[cfg(debug_assertions)]
     if let Some(p) = search_path(exe_name) {
+        let clean = strip_windows_verbatim_prefix(&p);
         return ToolStatus {
             found: true,
-            path: Some(p.to_string_lossy().to_string()),
+            path: Some(clean.to_string_lossy().to_string()),
             source: "path".to_string(),
         };
     }
@@ -155,11 +187,13 @@ pub fn find_bundled_or_path(
 ) -> ToolStatus {
     let mut search_roots = Vec::new();
     if let Some(res_dir) = resource_dir {
-        search_roots.push(res_dir.join("resources").join("bin"));
-        search_roots.push(res_dir.join("bin"));
+        let clean_res = strip_windows_verbatim_prefix(res_dir);
+        search_roots.push(clean_res.join("resources").join("bin"));
+        search_roots.push(clean_res.join("bin"));
     }
     if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
+        let clean_exe = strip_windows_verbatim_prefix(&exe_path);
+        if let Some(exe_dir) = clean_exe.parent() {
             search_roots.push(exe_dir.join("resources").join("bin"));
             search_roots.push(exe_dir.join("bin"));
             #[cfg(debug_assertions)]
@@ -178,11 +212,17 @@ pub fn find_bundled_or_path(
 
     for root in search_roots {
         for rel in relative_candidates {
-            let candidate = root.join(rel);
+            let mut candidate = root.clone();
+            for segment in rel.split(['/', '\\']) {
+                if !segment.is_empty() {
+                    candidate.push(segment);
+                }
+            }
             if candidate.is_file() {
+                let clean = strip_windows_verbatim_prefix(&candidate);
                 return ToolStatus {
                     found: true,
-                    path: Some(candidate.to_string_lossy().to_string()),
+                    path: Some(clean.to_string_lossy().to_string()),
                     source: "bundled".to_string(),
                 };
             }
@@ -191,9 +231,10 @@ pub fn find_bundled_or_path(
 
     #[cfg(debug_assertions)]
     if let Some(p) = search_path(exe_name) {
+        let clean = strip_windows_verbatim_prefix(&p);
         return ToolStatus {
             found: true,
-            path: Some(p.to_string_lossy().to_string()),
+            path: Some(clean.to_string_lossy().to_string()),
             source: "path".to_string(),
         };
     }
@@ -231,9 +272,10 @@ pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
     if let Some(custom) = custom_path.filter(|s| !s.trim().is_empty()) {
         let p = PathBuf::from(custom.trim());
         if is_valid_oscdimg_path(&p) {
+            let clean = strip_windows_verbatim_prefix(&p);
             return ToolStatus {
                 found: true,
-                path: Some(p.to_string_lossy().to_string()),
+                path: Some(clean.to_string_lossy().to_string()),
                 source: "settings".to_string(),
             };
         }
@@ -258,9 +300,10 @@ pub fn find_oscdimg(custom_path: Option<&str>) -> ToolStatus {
     #[cfg(debug_assertions)]
     if let Some(p) = search_path("oscdimg.exe") {
         if is_valid_oscdimg_path(&p) {
+            let clean = strip_windows_verbatim_prefix(&p);
             return ToolStatus {
                 found: true,
-                path: Some(p.to_string_lossy().to_string()),
+                path: Some(clean.to_string_lossy().to_string()),
                 source: "path".to_string(),
             };
         }
@@ -393,6 +436,84 @@ mod tests {
             let uppercase = dir.join("OSCDIMG.EXE");
             assert!(is_valid_oscdimg_path(&uppercase));
         }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn strips_windows_verbatim_prefix_safely() {
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(
+                r"\\?\C:\Program Files\ISOCraft\resources\bin\wimlib\wimlib-imagex.exe"
+            )),
+            PathBuf::from(r"C:\Program Files\ISOCraft\resources\bin\wimlib\wimlib-imagex.exe")
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(r"\\?\UNC\server\share\tool.exe")),
+            PathBuf::from(r"\\server\share\tool.exe")
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(r"\\?\unc\server\share\tool.exe")),
+            PathBuf::from(r"\\server\share\tool.exe")
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(r"\\?\Volume{1234}\foo")),
+            PathBuf::from(r"\\?\Volume{1234}\foo")
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(r"C:\Windows\System32\dism.exe")),
+            PathBuf::from(r"C:\Windows\System32\dism.exe")
+        );
+        let long_tail = "a".repeat(260);
+        let long_verbatim = format!(r"\\?\C:\{long_tail}");
+        assert_eq!(
+            strip_windows_verbatim_prefix(Path::new(&long_verbatim)),
+            PathBuf::from(&long_verbatim)
+        );
+    }
+
+    #[test]
+    fn find_bundled_or_path_strips_verbatim_prefix_and_normalizes_separators() {
+        let dir = std::env::temp_dir().join(format!(
+            "isocraft_bundled_verbatim_test_{}",
+            std::process::id()
+        ));
+        let wimlib_dir = dir.join("resources").join("bin").join("wimlib");
+        std::fs::create_dir_all(&wimlib_dir).unwrap();
+        let exe = wimlib_dir.join("wimlib-imagex.exe");
+        std::fs::write(&exe, b"mz").unwrap();
+
+        #[cfg(windows)]
+        let res_dir = {
+            let abs = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+            let abs_str = abs.to_string_lossy();
+            if abs_str.starts_with(r"\\?\") {
+                PathBuf::from(abs_str.to_string())
+            } else {
+                PathBuf::from(format!(r"\\?\{abs_str}"))
+            }
+        };
+        #[cfg(not(windows))]
+        let res_dir = dir.clone();
+
+        let status = find_bundled_or_path(
+            Some(&res_dir),
+            &["wimlib/wimlib-imagex.exe", "wimlib-imagex.exe"],
+            "wimlib-imagex.exe",
+        );
+
+        assert!(status.found);
+        assert_eq!(status.source, "bundled");
+        let resolved = status.path.expect("resolved path");
+        assert!(
+            !resolved.starts_with(r"\\?\"),
+            "unexpected verbatim prefix in {resolved}"
+        );
+        #[cfg(windows)]
+        assert!(
+            !resolved.contains('/'),
+            "unexpected forward slash in {resolved}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -13,7 +13,7 @@
    ```powershell
    cargo test -p isocraft-core --offline
    ```
-2. `isocraft` ([`src-tauri/src/lib.rs`](src-tauri/src/lib.rs)) — оболочка Tauri v2 (`dev.isocraft.app`), команды IPC, оркестратор `start_build` и встроенный Windows-манифест.
+2. `isocraft` ([`src-tauri/src/`](src-tauri/src/lib.rs)) — оболочка Tauri v2 (`dev.isocraft.app`), разделённая на `lib.rs` (настройка WebView2, перехват `CloseRequested`, регистрация команд), `commands.rs` (IPC-команды), `pipeline.rs` (оркестратор `run_build_pipeline`) и `state.rs` (`AppState`, эмиттеры) + встроенный Windows-манифест.
 
 **Важно:** не добавляйте внешние Cargo-зависимости без необходимости — проект должен собираться с `--offline` на основе зафиксированного `Cargo.lock`.
 
@@ -26,6 +26,7 @@
 - Для WebView2 явно задаётся папка данных `%LOCALAPPDATA%\ISOCraft\WebView2` (`webview_user_data_dir()`), чтобы браузерный движок корректно работал под повышенными правами администратора.
 - Из-за Windows UIPI обычный Проводник не может перетаскивать файлы (drag-and-drop) в окно с повышенными правами. Выбор всех файлов и папок выполняется строго через нативные диалоги `@tauri-apps/plugin-dialog`.
 - Не удаляйте перехват `WindowEvent::CloseRequested` в [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs): при `process_guard.is_busy()` окно обязано запросить подтверждение (`CloseGuardModal`) и при принудительном закрытии убить дерево дочерних процессов (`kill_all_tracked_trees`) + откатить монтирования (`recover_workspace`).
+- На Windows вызов Tauri `app.path().resource_dir()` возвращает verbatim-путь с префиксом `\\?\`, поэтому [`env.rs`](src-tauri/crates/core/src/env.rs) снимает префиксы `\\?\` / `\\?\UNC\` через `strip_windows_verbatim_prefix` (для стандартных путей короче 260 UTF-16 символов) и собирает относительные подпути утилит посегментно с нативным разделителем — не обходите `env.rs` и не передавайте сырой `resource_dir()` напрямую в UI или CLI.
 
 ### 2.2. Строгая валидация образов и изоляция исходников
 - Разрешена только **клиентская Windows 11 x64** (`Architecture == "x64"`, `InstallationType == "Client"`, `build >= 22000`). Образы `boot.wim` / WinPE, Windows Server, Windows 10 и `x86` / `ARM64` блокируются в [`image.rs`](src-tauri/crates/core/src/image.rs).
