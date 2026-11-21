@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { FluentModal, useAnimatedModalClose } from "../FluentModal";
+import { formatBytes } from "../../utils/format";
 import {
   AlertTriangle,
   Check,
@@ -43,19 +44,6 @@ function resolveWin11Version(buildNumber: number | null): string {
   return "26H2";
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(0)} KB`;
-  }
-  return `${bytes} B`;
-}
-
 export function CatalogModal({
   editionBuildNumber,
   workspaceDir,
@@ -82,43 +70,28 @@ export function CatalogModal({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
   const [downloadedByUpdate, setDownloadedByUpdate] = useState<Record<string, string[]>>({});
-  const [isClosing, setIsClosing] = useState(false);
   const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
 
   const searchSeqRef = useRef(0);
-  const closeTimerRef = useRef<number | null>(null);
   const versionMenuRef = useRef<HTMLDivElement>(null);
 
-  const requestClose = useCallback(() => {
-    if (downloadingId || isClosing) return;
+  const handleModalClose = useCallback(() => {
     setIsVersionMenuOpen(false);
-    setIsClosing(true);
-    closeTimerRef.current = window.setTimeout(() => {
-      onClose();
-    }, 140);
-  }, [downloadingId, isClosing, onClose]);
+    onClose();
+  }, [onClose]);
 
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
+  const handleBeforeEscape = useCallback(() => {
+    if (isVersionMenuOpen) {
+      setIsVersionMenuOpen(false);
+      return true;
+    }
+    return false;
+  }, [isVersionMenuOpen]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (isVersionMenuOpen) {
-          setIsVersionMenuOpen(false);
-          return;
-        }
-        requestClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isVersionMenuOpen, requestClose]);
+  const { isClosing, requestClose } = useAnimatedModalClose(handleModalClose, {
+    locked: Boolean(downloadingId),
+    onBeforeEscape: handleBeforeEscape,
+  });
 
   useEffect(() => {
     if (!isVersionMenuOpen) return;
@@ -290,17 +263,14 @@ export function CatalogModal({
     },
   ];
 
-  return createPortal(
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) requestClose();
-      }}
-      className={`${isClosing ? "animate-fluent-backdrop-exit" : "animate-fluent-backdrop"} fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4`}
+  return (
+    <FluentModal
+      isClosing={isClosing}
+      onRequestClose={requestClose}
+      maxWidthClass="max-w-[820px]"
+      panelClassName="flex flex-col max-h-[85vh]"
     >
-      <div
-        className={`${isClosing ? "animate-fluent-modal-exit" : "animate-fluent-modal"} w-full max-w-[820px] bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]`}
-      >
-        {/* Header */}
+      {/* Header */}
         <div className="px-5 py-4 border-b border-border-subtle flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-[15.5px] font-semibold text-text-primary truncate">
@@ -667,8 +637,6 @@ export function CatalogModal({
             {t("screens.updates.catalogModal.close")}
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </FluentModal>
   );
 }

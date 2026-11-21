@@ -42,6 +42,14 @@ jobs:
       - name: Build frontend and check TypeScript types
         run: npm run build
 
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust clippy
+        working-directory: src-tauri
+        run: cargo clippy --workspace --locked
+
       - name: Check Rust workspace
         working-directory: src-tauri
         run: cargo check --workspace --locked

@@ -12,7 +12,8 @@ interface LogDrawerProps {
 
 export function LogDrawer({ logs, onClose }: LogDrawerProps) {
   const { t } = useTranslation();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [isClosing, setIsClosing] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
@@ -34,8 +35,18 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollContainerRef.current;
+    if (el && isNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [logs.length]);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
 
   const handleExport = async () => {
     try {
@@ -89,7 +100,11 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-2 font-mono text-[12px] leading-relaxed select-text">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-2 font-mono text-[12px] leading-relaxed select-text"
+      >
         {logs.length === 0 ? (
           <div className="text-text-secondary italic py-4">
             {t("logDrawer.empty")}
@@ -103,7 +118,7 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
                 ? "text-status-warning"
                 : "text-text-secondary";
             return (
-              <div key={idx} className="flex items-start gap-2.5 py-0.5">
+              <div key={entry.id ?? idx} className="flex items-start gap-2.5 py-0.5">
                 <span className="text-text-secondary shrink-0">
                   [{entry.timestamp}]
                 </span>
@@ -115,7 +130,6 @@ export function LogDrawer({ logs, onClose }: LogDrawerProps) {
             );
           })
         )}
-        <div ref={bottomRef} />
       </div>
     </section>
   );

@@ -37,19 +37,39 @@ fn is_inf_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_symlink_or_reparse(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn scan_driver_path(path: &Path) -> Result<DriverScanResult, String> {
-    if !path.exists() {
-        return Err(format!("Driver path does not exist: {}", path.display()));
+    let top_meta = fs::symlink_metadata(path)
+        .map_err(|_| format!("Driver path does not exist: {}", path.display()))?;
+    if is_symlink_or_reparse(&top_meta) {
+        return Err(format!(
+            "Symbolic links and junctions are not supported for driver paths: {}",
+            path.display()
+        ));
     }
 
-    if path.is_file() {
+    if top_meta.is_file() {
         if !is_inf_file(path) {
             return Err(format!(
                 "Unsupported driver file '{}'. Expected .inf file.",
                 path.display()
             ));
         }
-        let total_bytes = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let total_bytes = top_meta.len();
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -64,7 +84,7 @@ pub fn scan_driver_path(path: &Path) -> Result<DriverScanResult, String> {
         });
     }
 
-    if path.is_dir() {
+    if top_meta.is_dir() {
         let mut inf_names = Vec::new();
         let mut total_bytes = 0u64;
         let mut stack: Vec<PathBuf> = vec![path.to_path_buf()];
@@ -74,10 +94,16 @@ pub fn scan_driver_path(path: &Path) -> Result<DriverScanResult, String> {
                 .map_err(|e| format!("Failed reading driver folder '{}': {e}", dir.display()))?;
             for entry in entries.flatten() {
                 let child = entry.path();
-                if child.is_dir() {
+                let Ok(meta) = fs::symlink_metadata(&child) else {
+                    continue;
+                };
+                if is_symlink_or_reparse(&meta) {
+                    continue;
+                }
+                if meta.is_dir() {
                     stack.push(child);
-                } else if child.is_file() {
-                    total_bytes += fs::metadata(&child).map(|m| m.len()).unwrap_or(0);
+                } else if meta.is_file() {
+                    total_bytes += meta.len();
                     if is_inf_file(&child) {
                         if let Some(name) = child.file_name().and_then(|n| n.to_str()) {
                             inf_names.push(name.to_string());

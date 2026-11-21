@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatBytes } from "../../utils/format";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -47,19 +48,6 @@ const PROTECTED_ISO_FILES = new Set([
   "bootmgr.efi",
 ]);
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(0)} KB`;
-  }
-  return `${bytes} B`;
-}
-
 function getBaseName(fullPath: string): string {
   const parts = fullPath.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? fullPath;
@@ -103,7 +91,8 @@ function validateDestinationClient(
     if (
       norm === "windows\\system32\\config" ||
       norm.startsWith("windows\\system32\\config\\") ||
-      norm === "users\\default\\ntuser.dat"
+      norm === "users\\default\\ntuser.dat" ||
+      norm.startsWith("users\\default\\ntuser.dat\\")
     ) {
       return { errorKey: "invalidDestProtected", cleanDir: stripped };
     }

@@ -18,6 +18,15 @@ pub struct RegistryBuildPlan {
     pub reg_files: Vec<RegQueueEntry>,
 }
 
+/// Validates that a temporary offline hive subkey name matches the `ISOCRAFT_<pid>_<HIVE>` format
+/// and cannot reference arbitrary `HKLM` subkeys or contain path separators / NUL bytes.
+pub fn is_valid_temp_hive_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("ISOCRAFT_") else {
+        return false;
+    };
+    !suffix.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 #[cfg(windows)]
 mod win32_impl {
     use super::*;
@@ -111,6 +120,11 @@ mod win32_impl {
     }
 
     pub fn unload_hive_by_name(temp_subkey: &str) -> Result<(), String> {
+        if !is_valid_temp_hive_name(temp_subkey) {
+            return Err(format!(
+                "Refusing to unload untrusted hive name '{temp_subkey}'."
+            ));
+        }
         let _ = enable_backup_restore_privileges();
         let wide = to_wide_null(temp_subkey);
         let err = unsafe { RegUnLoadKeyW(HKEY_LOCAL_MACHINE, PCWSTR(wide.as_ptr())) };
@@ -420,10 +434,24 @@ mod win32_impl {
         mount_dir: &Path,
         workspace_dir: &Path,
         reg_paths: &[PathBuf],
+        on_log: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&str),
+    {
+        apply_reg_files_to_mount_cancellable(mount_dir, workspace_dir, reg_paths, || false, on_log)
+    }
+
+    pub fn apply_reg_files_to_mount_cancellable<F, C>(
+        mount_dir: &Path,
+        workspace_dir: &Path,
+        reg_paths: &[PathBuf],
+        is_cancelled: C,
         mut on_log: F,
     ) -> Result<(), String>
     where
         F: FnMut(&str),
+        C: Fn() -> bool,
     {
         if reg_paths.is_empty() {
             return Ok(());
@@ -434,6 +462,9 @@ mod win32_impl {
         let mut needed_hives = BTreeSet::new();
 
         for path in reg_paths {
+            if is_cancelled() {
+                return Err("Operation cancelled by user.".to_string());
+            }
             let bytes = fs::read(path)
                 .map_err(|e| format!("Failed reading .reg file '{}': {e}", path.display()))?;
             let content = decode_text_bytes(&bytes);
@@ -464,6 +495,9 @@ mod win32_impl {
         let mut session = LoadedHiveSession::new(workspace_dir);
         let apply_res: Result<(), String> = (|| {
             for hive in &needed_hives {
+                if is_cancelled() {
+                    return Err("Operation cancelled by user.".to_string());
+                }
                 session.load_hive(*hive, mount_dir, &mut on_log)?;
             }
 
@@ -477,6 +511,9 @@ mod win32_impl {
             };
 
             for (path, parsed) in &parsed_files {
+                if is_cancelled() {
+                    return Err("Operation cancelled by user.".to_string());
+                }
                 on_log(&format!(
                     "Applying .reg file ({} operations): {}",
                     parsed.operations.len(),
@@ -484,6 +521,9 @@ mod win32_impl {
                 ));
 
                 for op in &parsed.operations {
+                    if is_cancelled() {
+                        return Err("Operation cancelled by user.".to_string());
+                    }
                     let temp_root = session
                         .temp_key_for(op.hive)
                         .ok_or_else(|| format!("Hive {} not loaded", op.hive.label()))?;
@@ -581,7 +621,8 @@ mod win32_impl {
 
 #[cfg(windows)]
 pub use win32_impl::{
-    apply_reg_files_to_mount, enable_backup_restore_privileges, unload_hive_by_name,
+    apply_reg_files_to_mount, apply_reg_files_to_mount_cancellable,
+    enable_backup_restore_privileges, unload_hive_by_name,
 };
 
 #[cfg(not(windows))]
@@ -590,19 +631,61 @@ pub fn enable_backup_restore_privileges() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-pub fn unload_hive_by_name(_temp_subkey: &str) -> Result<(), String> {
+pub fn unload_hive_by_name(temp_subkey: &str) -> Result<(), String> {
+    if !is_valid_temp_hive_name(temp_subkey) {
+        return Err(format!(
+            "Refusing to unload untrusted hive name '{temp_subkey}'."
+        ));
+    }
     Ok(())
 }
 
 #[cfg(not(windows))]
 pub fn apply_reg_files_to_mount<F>(
-    _mount_dir: &Path,
-    _workspace_dir: &Path,
-    _reg_paths: &[PathBuf],
-    _on_log: F,
+    mount_dir: &Path,
+    workspace_dir: &Path,
+    reg_paths: &[PathBuf],
+    on_log: F,
 ) -> Result<(), String>
 where
     F: FnMut(&str),
 {
+    apply_reg_files_to_mount_cancellable(mount_dir, workspace_dir, reg_paths, || false, on_log)
+}
+
+#[cfg(not(windows))]
+pub fn apply_reg_files_to_mount_cancellable<F, C>(
+    _mount_dir: &Path,
+    _workspace_dir: &Path,
+    _reg_paths: &[PathBuf],
+    _is_cancelled: C,
+    _on_log: F,
+) -> Result<(), String>
+where
+    F: FnMut(&str),
+    C: Fn() -> bool,
+{
     Err("Offline registry operations are only supported on Windows.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_temp_hive_names_strictly() {
+        assert!(is_valid_temp_hive_name("ISOCRAFT_1234_SOFTWARE"));
+        assert!(is_valid_temp_hive_name("ISOCRAFT_99_NTUSER"));
+
+        assert!(!is_valid_temp_hive_name(""));
+        assert!(!is_valid_temp_hive_name("ISOCRAFT_"));
+        assert!(!is_valid_temp_hive_name("SOFTWARE"));
+        assert!(!is_valid_temp_hive_name("SYSTEM\\CurrentControlSet"));
+        assert!(!is_valid_temp_hive_name("ISOCRAFT_123\\SYSTEM"));
+        assert!(!is_valid_temp_hive_name("ISOCRAFT_123\0"));
+        assert!(!is_valid_temp_hive_name("../ISOCRAFT_1"));
+
+        assert!(unload_hive_by_name("SOFTWARE").is_err());
+        assert!(unload_hive_by_name("ISOCRAFT_123\\SYSTEM").is_err());
+    }
 }

@@ -93,6 +93,9 @@ try {
     $wimExtract = Join-Path $TempDir "wimlib"
     New-Item -ItemType Directory -Path $wimExtract -Force | Out-Null
     tar.exe -xf $zipPath -C $wimExtract
+    if ($LASTEXITCODE -ne 0) {
+      throw "tar.exe failed extracting wimlib archive '$zipPath' (exit code $LASTEXITCODE)."
+    }
 
     foreach ($item in @("wimlib-imagex.exe", "libwim-15.dll", "COPYING", "COPYING.GPLv3", "COPYING.LGPLv3")) {
       $src = Join-Path $wimExtract $item
@@ -118,6 +121,9 @@ try {
       $pkgPath = Join-Path $TempDir $pkg.Name
       Get-VerifiedFile -Url $pkg.Url -DestPath $pkgPath -ExpectedSha256 $pkg.Sha256
       tar.exe -xf $pkgPath -C $msysExtract 2>$null
+      if ($LASTEXITCODE -ne 0) {
+        throw "tar.exe failed extracting MSYS2 package '$($pkg.Name)' (exit code $LASTEXITCODE)."
+      }
     }
 
     Copy-Item -Path (Join-Path $msysExtract "usr\bin\xorriso.exe") -Destination $XorrisoDir -Force

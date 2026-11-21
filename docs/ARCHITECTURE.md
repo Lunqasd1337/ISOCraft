@@ -7,7 +7,11 @@
 ## 1. Системная схема и модули
 
 ### Backend (`src-tauri/`)
-- **`src-tauri/src/lib.rs`** — точка входа Tauri (`AppState`, команды IPC, перехват `CloseRequested`, оркестратор `start_build` и восстановление `recover_workspace`).
+- **`src-tauri/src/`** (оболочка Tauri v2, `isocraft`):
+  - `lib.rs` — точка входа (`run`), настройка WebView2 (`webview_user_data_dir()`), перехват `WindowEvent::CloseRequested` и регистрация IPC-команд (`commands::*`).
+  - `state.rs` — `AppState`, структуры `BuildConfig` / `BuildProgressEvent` / `AppsBuildPlan` / `FeaturesBuildPlan`, потоковые эмиттеры `log_and_emit` / `emit_progress`, `apply_window_theme` и `cleanup_session_dir_if_clean`.
+  - `commands.rs` — 24 `#[tauri::command]` IPC-обработчика (`check_environment`, `inspect_image`, `load_image_catalog`, команды сканирования, пресетов, `start_build`, `cancel_build`, `recover_workspace`, `force_cancel_and_close`).
+  - `pipeline.rs` — оркестратор 9-шагового пайплайна `run_build_pipeline` и проверка защиты от перезаписи исходного образа (`paths_overlap_source`).
 - **`src-tauri/crates/core/src/`** (`isocraft-core`, чистое ядро без UI/диалогов):
   - `env.rs` — определение прав администратора, поиск утилит (`dism.exe`, `curl.exe`, `wimlib-imagex.exe`, `xorriso.exe`, `oscdimg.exe`), проверка свободного места (`< 40 ГБ`), чтение/запись `workspace_state.json`.
   - `settings.rs` — хранение настроек в `%LOCALAPPDATA%\ISOCraft\settings.json`, рабочая папка по умолчанию `%LOCALAPPDATA%\ISOCraft\work`, WebView2 в `%LOCALAPPDATA%\ISOCraft\WebView2`.
@@ -19,7 +23,8 @@
   - `dism.rs` — загрузка и дисковое кеширование каталога редакции (`catalog_*.json`) через однократный RO-маунт + PowerShell `Dism` JSON + немедленный `/Discard`.
   - `apps.rs` — извлечение `PackageFamilyName`, словарь защищённых системных пакетов, фильтрация зависимостей по архитектуре (`x64`/`neutral`), вызовы DISM `/Add-ProvisionedAppxPackage` и `/Remove-ProvisionedAppxPackage`.
   - `features.rs` — включение/отключение Optional Features (`/All`, `/Source sxs`, `/LimitAccess`) и Capabilities.
-  - `updates.rs` — сканирование `.msu`/`.cab` и папок, поиск и загрузка обновлений из Microsoft Update Catalog (`Search.aspx` / `DownloadDialog.aspx`) в `<workspace>\downloads\updates`, пакетная интеграция 24H2+ Checkpoint CU, расшифровка ошибок DISM и `StartComponentCleanup` (с безопасным пропуском `0x800f0806` в оффлайне).
+  - `updates.rs` — сканирование `.msu`/`.cab` и папок, пакетная интеграция 24H2+ Checkpoint CU, расшифровка ошибок DISM, `StartComponentCleanup` (с безопасным пропуском `0x800f0806` в оффлайне) и реэкспорт `update_catalog`.
+  - `update_catalog.rs` — поиск (`Search.aspx`), разбор диалогов (`DownloadDialog.aspx`) и HTTPS-only загрузка обновлений из Microsoft Update Catalog в `<workspace>\downloads\updates`.
   - `drivers.rs` — сканирование `.inf` драйверов, передача `/Recurse` (только для директорий) и `/ForceUnsigned`, поддержка `install.wim` и `boot.wim` Index 2.
   - `reg_parser.rs` — парсер `.reg` v5 / `REGEDIT4` (UTF-16LE/BE/UTF-8, `\`, `@`, все типы значений), маппинг веток (`CurrentControlSet`, `HKCU`, `HKCR`, `HKU\.DEFAULT`) и dry-run предпросмотр.
   - `registry.rs` — нативная Win32 загрузка/выгрузка оффлайн-кустов и применение операций с правами `TrustedInstaller` (`REG_OPTION_BACKUP_RESTORE` + `NtDeleteKey`).
@@ -27,8 +32,10 @@
   - `preset.rs` — сериализация/импорт JSON-пресетов (`schemaVersion: "1.0"`) и аудит отсутствующих локальных путей.
 
 ### Frontend (`src/`)
-- **`src/App.tsx`** — единое состояние очередей, каталога, пресетов (включая relink/remove), тем и диалога сборки.
-- **`src/components/`** — `Titlebar.tsx` (40px, переключение языка и темы), `Sidebar.tsx` (220px, 8 разделов с бейджами очереди), `StatusBar.tsx` (48px), `LogDrawer.tsx` (200px), `SettingsModal.tsx`, `CloseGuardModal.tsx`.
+- **`src/App.tsx`** — основное состояние очередей, каталога, тем и сборки.
+- **`src/hooks/usePresetWorkflow.ts`** — сохранение/импорт пресетов (`schemaVersion: "1.0"`) и relink/remove отсутствующих локальных путей.
+- **`src/utils/format.ts`** — общие утилиты форматирования (`formatBytes`).
+- **`src/components/`** — `Titlebar.tsx` (40px, переключение языка и темы), `Sidebar.tsx` (220px, 8 разделов с бейджами очереди), `StatusBar.tsx` (48px), `LogDrawer.tsx` (200px), `FluentModal.tsx` (общая обёртка модальных окон + `useAnimatedModalClose`), `SettingsModal.tsx`, `CloseGuardModal.tsx`.
 - **`src/components/screens/`** — `ImageScreen.tsx`, `AppsScreen.tsx` (+ `AddAppxModal.tsx`), `FeaturesScreen.tsx`, `UpdatesScreen.tsx` (+ `CatalogModal.tsx`), `DriversScreen.tsx`, `RegistryScreen.tsx`, `FilesScreen.tsx`, `BuildScreen.tsx`, `ScreenShell.tsx`.
 
 ---

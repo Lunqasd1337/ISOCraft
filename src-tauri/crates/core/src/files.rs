@@ -50,6 +50,52 @@ pub struct FileInjectionReport {
     pub created_dirs: usize,
 }
 
+fn is_symlink_or_reparse(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_windows_reserved_name(segment: &str) -> bool {
+    let trimmed = segment.trim_end_matches([' ', '.']);
+    let stem = trimmed.split('.').next().unwrap_or("");
+    let upper = stem.to_ascii_uppercase();
+    matches!(
+        upper.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
+}
+
 fn clear_readonly_on_file(path: &Path) {
     if let Ok(meta) = fs::metadata(path) {
         let mut perms = meta.permissions();
@@ -98,7 +144,7 @@ pub fn normalize_destination_dir(raw_dest: &str) -> Result<PathBuf, String> {
             return Err("Destination path contains an empty path segment.".to_string());
         }
         let seg_trimmed = seg.trim_end_matches([' ', '.']);
-        if seg == "." || seg == ".." || seg_trimmed.is_empty() {
+        if seg == "." || seg == ".." || seg_trimmed.is_empty() || is_windows_reserved_name(seg) {
             return Err(format!(
                 "Path traversal or invalid segment '{seg}' is not allowed in destination path."
             ));
@@ -186,24 +232,94 @@ pub fn check_protected_relative_path(target: &FileTarget, rel_path: &Path) -> Re
     Ok(())
 }
 
+/// Verifies that no existing path segment along `target_root / rel_path` is a symlink or NTFS reparse point
+/// (preventing escape out of `mount_install` via Windows compatibility junctions such as `Users\All Users`).
+pub fn check_target_no_reparse_escape(target_root: &Path, rel_path: &Path) -> Result<(), String> {
+    let root_meta = fs::symlink_metadata(target_root).map_err(|e| {
+        format!(
+            "Failed reading target root metadata '{}': {e}",
+            target_root.display()
+        )
+    })?;
+    if is_symlink_or_reparse(&root_meta) {
+        return Err(format!(
+            "Target root '{}' must not be a symbolic link or reparse point.",
+            target_root.display()
+        ));
+    }
+
+    let canon_root = fs::canonicalize(target_root).ok();
+    let mut cur = target_root.to_path_buf();
+    for comp in rel_path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::Normal(seg) => {
+                cur.push(seg);
+                match fs::symlink_metadata(&cur) {
+                    Ok(meta) => {
+                        if is_symlink_or_reparse(&meta) {
+                            return Err(format!(
+                                "Destination path traverses a symbolic link or NTFS junction inside target image: '{}'.",
+                                rel_path.display()
+                            ));
+                        }
+                        if let (Some(ref cr), Ok(cc)) = (&canon_root, fs::canonicalize(&cur)) {
+                            if !cc.starts_with(cr) {
+                                return Err(format!(
+                                    "Destination path escapes target root '{}': '{}'.",
+                                    target_root.display(),
+                                    rel_path.display()
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                    Err(e) => {
+                        return Err(format!(
+                            "Failed inspecting destination path '{}': {e}",
+                            cur.display()
+                        ));
+                    }
+                }
+            }
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "Invalid non-relative component in destination path '{}'.",
+                    rel_path.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Validates a queued file/folder injection item prior to mounting images.
 /// Returns the normalized relative destination path (`<destination_path>\<source_name>`).
 pub fn validate_file_injection_item(item: &FileInjectionItem) -> Result<PathBuf, String> {
     let src = Path::new(&item.source_path);
-    if item.source_path.trim().is_empty() || !src.exists() {
-        return Err(format!(
+    if item.source_path.trim().is_empty() {
+        return Err("Custom file or folder path must not be empty.".to_string());
+    }
+    let src_meta = fs::symlink_metadata(src).map_err(|_| {
+        format!(
             "Custom file or folder does not exist: '{}'",
+            item.source_path
+        )
+    })?;
+    if is_symlink_or_reparse(&src_meta) {
+        return Err(format!(
+            "Symbolic links and junctions are not supported as custom sources: '{}'",
             item.source_path
         ));
     }
 
-    if item.is_directory && !src.is_dir() {
+    if item.is_directory && !src_meta.is_dir() {
         return Err(format!(
             "Expected a directory for custom file rule, got file: '{}'",
             item.source_path
         ));
     }
-    if !item.is_directory && !src.is_file() {
+    if !item.is_directory && !src_meta.is_file() {
         return Err(format!(
             "Expected a file for custom file rule, got directory: '{}'",
             item.source_path
@@ -216,6 +332,12 @@ pub fn validate_file_injection_item(item: &FileInjectionItem) -> Result<PathBuf,
             item.source_path
         )
     })?;
+    if is_windows_reserved_name(&entry_name.to_string_lossy()) {
+        return Err(format!(
+            "Source entry name '{}' is a reserved Windows device name.",
+            entry_name.to_string_lossy()
+        ));
+    }
 
     let dest_dir = normalize_destination_dir(&item.destination_path)?;
     let full_rel = if dest_dir.as_os_str().is_empty() {
@@ -242,16 +364,17 @@ pub fn validate_file_injection_item(item: &FileInjectionItem) -> Result<PathBuf,
                         cur_src.display()
                     )
                 })?;
-                let Ok(ft) = entry.file_type() else {
+                let child_path = entry.path();
+                let Ok(child_meta) = fs::symlink_metadata(&child_path) else {
                     continue;
                 };
-                if ft.is_symlink() {
+                if is_symlink_or_reparse(&child_meta) {
                     continue;
                 }
                 let child_rel = cur_rel.join(entry.file_name());
                 check_protected_relative_path(&item.target, &child_rel)?;
-                if ft.is_dir() {
-                    stack.push((entry.path(), child_rel));
+                if child_meta.is_dir() {
+                    stack.push((child_path, child_rel));
                 }
             }
         }
@@ -269,14 +392,14 @@ pub fn scan_custom_file_path(path: &Path) -> Result<FileScanResult, String> {
     let meta = fs::symlink_metadata(path)
         .map_err(|e| format!("Failed inspecting '{}': {e}", path.display()))?;
 
-    if meta.file_type().is_symlink() {
+    if is_symlink_or_reparse(&meta) {
         return Err(format!(
-            "Symbolic links are not supported as top-level custom sources: '{}'",
+            "Symbolic links and junctions are not supported as top-level custom sources: '{}'",
             path.display()
         ));
     }
 
-    if path.is_file() {
+    if meta.is_file() {
         return Ok(FileScanResult {
             path: path.to_string_lossy().to_string(),
             is_directory: false,
@@ -285,7 +408,7 @@ pub fn scan_custom_file_path(path: &Path) -> Result<FileScanResult, String> {
         });
     }
 
-    if path.is_dir() {
+    if meta.is_dir() {
         let mut file_count = 0usize;
         let mut total_bytes = 0u64;
         let mut stack: Vec<PathBuf> = vec![path.to_path_buf()];
@@ -294,17 +417,18 @@ pub fn scan_custom_file_path(path: &Path) -> Result<FileScanResult, String> {
             let entries = fs::read_dir(&dir)
                 .map_err(|e| format!("Failed reading folder '{}': {e}", dir.display()))?;
             for entry in entries.flatten() {
-                let Ok(ft) = entry.file_type() else {
+                let child_path = entry.path();
+                let Ok(child_meta) = fs::symlink_metadata(&child_path) else {
                     continue;
                 };
-                if ft.is_symlink() {
+                if is_symlink_or_reparse(&child_meta) {
                     continue;
                 }
-                if ft.is_dir() {
-                    stack.push(entry.path());
-                } else if ft.is_file() {
+                if child_meta.is_dir() {
+                    stack.push(child_path);
+                } else if child_meta.is_file() {
                     file_count += 1;
-                    total_bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    total_bytes += child_meta.len();
                 }
             }
         }
@@ -340,6 +464,7 @@ where
         }
 
         let rel_base = validate_file_injection_item(item)?;
+        check_target_no_reparse_escape(target_root, &rel_base)?;
         let src = Path::new(&item.source_path);
 
         if !item.is_directory {
@@ -415,19 +540,20 @@ where
                             cur_src.display()
                         )
                     })?;
-                    let Ok(ft) = entry.file_type() else {
+                    let child_src = entry.path();
+                    let Ok(child_meta) = fs::symlink_metadata(&child_src) else {
                         continue;
                     };
-                    if ft.is_symlink() {
+                    if is_symlink_or_reparse(&child_meta) {
                         continue;
                     }
 
-                    let child_src = entry.path();
                     let child_rel = cur_rel.join(entry.file_name());
                     check_protected_relative_path(&target_kind, &child_rel)?;
+                    check_target_no_reparse_escape(target_root, &child_rel)?;
 
                     let child_dest = target_root.join(&child_rel);
-                    if ft.is_dir() {
+                    if child_meta.is_dir() {
                         if !child_dest.exists() {
                             fs::create_dir_all(&child_dest).map_err(|e| {
                                 format!(
@@ -438,7 +564,7 @@ where
                             report.created_dirs += 1;
                         }
                         stack.push((child_src, child_rel));
-                    } else if ft.is_file() {
+                    } else if child_meta.is_file() {
                         if child_dest.exists() && item.conflict_policy == ConflictPolicy::Skip {
                             dir_skipped += 1;
                             report.skipped_files += 1;
@@ -509,6 +635,59 @@ mod tests {
         assert!(normalize_destination_dir(r"\\server\share").is_err());
         assert!(normalize_destination_dir(r"Tools\\Sub").is_err());
         assert!(normalize_destination_dir(r"Tools\bad*name").is_err());
+        assert!(normalize_destination_dir("CON").is_err());
+        assert!(normalize_destination_dir("NUL").is_err());
+        assert!(normalize_destination_dir("COM1.txt").is_err());
+        assert!(normalize_destination_dir(r"Tools\PRN").is_err());
+    }
+
+    #[test]
+    fn checks_reparse_escape_and_blocks_symlinks_when_present() {
+        let base = make_temp_dir("isocraft_reparse_test");
+        let target_root = base.join("mount");
+        let outside = base.join("outside_host");
+        fs::create_dir_all(target_root.join("Windows").join("Setup")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+
+        assert!(check_target_no_reparse_escape(
+            &target_root,
+            Path::new(r"Windows\Setup\Scripts\run.cmd")
+        )
+        .is_ok());
+
+        #[cfg(windows)]
+        {
+            let link_dir = target_root.join("AllUsersLink");
+            if std::os::windows::fs::symlink_dir(&outside, &link_dir).is_ok() {
+                let err = check_target_no_reparse_escape(
+                    &target_root,
+                    Path::new(r"AllUsersLink\Startup\evil.cmd"),
+                )
+                .unwrap_err();
+                assert!(err.contains("symbolic link") || err.contains("junction"));
+
+                let src_file = base.join("payload.cmd");
+                fs::write(&src_file, b"echo hi").unwrap();
+                let item = FileInjectionItem {
+                    source_path: src_file.to_string_lossy().to_string(),
+                    is_directory: false,
+                    target: FileTarget::InstallWim,
+                    destination_path: r"AllUsersLink\Startup".to_string(),
+                    conflict_policy: ConflictPolicy::Overwrite,
+                };
+                assert!(apply_file_injections(
+                    &target_root,
+                    FileTarget::InstallWim,
+                    &[item],
+                    || false,
+                    |_| {}
+                )
+                .is_err());
+                assert!(!outside.join("Startup").exists());
+            }
+        }
+
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

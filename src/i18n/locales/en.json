@@ -115,6 +115,7 @@
       },
       "editionsTitle": "Target Edition",
       "editionsHint": "Only the selected edition will be exported; all other editions will be trimmed during build.",
+      "editionFallback": "Edition {{index}}",
       "indexLabel": "Index {{index}}",
       "sizeGb": "{{gb}} GB",
       "catalogLoading": "Loading apps & features catalog (read-only mount)...",
@@ -143,6 +144,9 @@
       "removeAction": "Remove",
       "keepAction": "Keep",
       "removeFromQueue": "Remove",
+      "addedMeta": "deps: {{count}} • {{license}}",
+      "licenseSkipShort": "SkipLicense",
+      "licenseXmlShort": "LicenseXML",
       "noMatches": "No apps match the current filter.",
       "protectConfirmTitle": "Remove protected system package",
       "protectConfirmDesc": "{{name}} is marked as critical for Windows 11. Removing it may break Microsoft Store, winget, Windows Security, or built-in apps.",
@@ -296,6 +300,8 @@
       "statsBadge": "+{{set}} / -{{del}}",
       "syntaxErrorBadge": "Syntax error",
       "warningsBadge": "Warnings: {{count}}",
+      "fileNotFound": "File not found",
+      "rootKey": "(root)",
       "scanError": "Failed to parse .reg file: {{error}}"
     },
     "files": {

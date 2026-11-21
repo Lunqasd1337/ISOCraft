@@ -381,7 +381,9 @@ export function RegistryScreen({
                                 {op.hiveDisplay}
                               </div>
                               <div className="col-span-4 font-mono text-text-primary break-all">
-                                <div>{op.targetPath || "(root)"}</div>
+                                <div>
+                                  {op.targetPath || t("screens.registry.rootKey")}
+                                </div>
                                 {valLabel && (
                                   <div className="text-text-secondary">{valLabel}</div>
                                 )}

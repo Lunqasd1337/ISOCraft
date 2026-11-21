@@ -1,4 +1,5 @@
-use crate::process::{run_tracked_command, ProcessGuard};
+use crate::env::find_powershell;
+use crate::process::{run_tracked_command, run_tracked_command_with_env, ProcessGuard};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
@@ -349,7 +350,17 @@ async fn read_wim_xml_with_wimlib(wimlib_path: &Path, image_path: &Path) -> Resu
 }
 
 pub fn escape_ps_single_quoted(s: &str) -> String {
-    s.replace('\'', "''")
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => {
+                out.push(ch);
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 pub async fn run_powershell_script(script: &str) -> Result<String, String> {
@@ -360,6 +371,17 @@ pub async fn run_powershell_script_tracked(
     script: &str,
     guard: Option<&ProcessGuard>,
 ) -> Result<String, String> {
+    run_powershell_script_with_env(script, &[], guard).await
+}
+
+pub async fn run_powershell_script_with_env(
+    script: &str,
+    envs: &[(&str, &std::ffi::OsStr)],
+    guard: Option<&ProcessGuard>,
+) -> Result<String, String> {
+    let ps_path = find_powershell()
+        .path
+        .ok_or_else(|| "powershell.exe not found in Windows system directory.".to_string())?;
     let full_script = format!(
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); {script}"
     );
@@ -372,7 +394,7 @@ pub async fn run_powershell_script_tracked(
         "-Command".to_string(),
         full_script,
     ];
-    let out = run_tracked_command("powershell.exe", &args, None, guard, |_| {}).await?;
+    let out = run_tracked_command_with_env(&ps_path, &args, None, envs, guard, |_| {}).await?;
 
     if out.exit_code != 0 {
         return Err(format!(
@@ -390,14 +412,17 @@ pub async fn mount_iso_drive_letter(
     iso_path: &Path,
     guard: Option<&ProcessGuard>,
 ) -> Result<String, String> {
-    let escaped = escape_ps_single_quoted(&iso_path.to_string_lossy());
-    let script = format!(
-        "$img = Mount-DiskImage -ImagePath '{escaped}' -PassThru; \
-         $vol = $img | Get-Volume | Where-Object {{ $_.DriveLetter }} | Select-Object -First 1; \
-         if (-not $vol) {{ Dismount-DiskImage -ImagePath '{escaped}' -ErrorAction SilentlyContinue; throw 'Mounted ISO has no drive letter.' }}; \
-         Write-Output $vol.DriveLetter"
-    );
-    let out = run_powershell_script_tracked(&script, guard).await?;
+    let script = "$p = $env:ISOCRAFT_TARGET_PATH; \
+         $img = Mount-DiskImage -ImagePath $p -PassThru; \
+         $vol = $img | Get-Volume | Where-Object { $_.DriveLetter } | Select-Object -First 1; \
+         if (-not $vol) { Dismount-DiskImage -ImagePath $p -ErrorAction SilentlyContinue; throw 'Mounted ISO has no drive letter.' }; \
+         Write-Output $vol.DriveLetter";
+    let out = run_powershell_script_with_env(
+        script,
+        &[("ISOCRAFT_TARGET_PATH", iso_path.as_os_str())],
+        guard,
+    )
+    .await?;
     let letter = out
         .trim()
         .chars()
@@ -407,11 +432,13 @@ pub async fn mount_iso_drive_letter(
 }
 
 pub async fn dismount_iso(iso_path: &Path) {
-    let escaped = escape_ps_single_quoted(&iso_path.to_string_lossy());
-    let script = format!(
-        "Dismount-DiskImage -ImagePath '{escaped}' -ErrorAction SilentlyContinue | Out-Null"
-    );
-    let _ = run_powershell_script(&script).await;
+    let script = "Dismount-DiskImage -ImagePath $env:ISOCRAFT_TARGET_PATH -ErrorAction SilentlyContinue | Out-Null";
+    let _ = run_powershell_script_with_env(
+        script,
+        &[("ISOCRAFT_TARGET_PATH", iso_path.as_os_str())],
+        None,
+    )
+    .await;
 }
 
 pub async fn inspect_image(
@@ -752,5 +779,11 @@ mod tests {
     fn escapes_powershell_single_quoted_paths_with_spaces_apostrophes_and_cyrillic() {
         let escaped = escape_ps_single_quoted(r"D:\Образы\O'Brien's Win11 x64\install.wim");
         assert_eq!(escaped, r"D:\Образы\O''Brien''s Win11 x64\install.wim");
+
+        let unicode_quotes = escape_ps_single_quoted("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e");
+        assert_eq!(
+            unicode_quotes,
+            "a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e"
+        );
     }
 }

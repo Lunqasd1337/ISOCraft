@@ -240,7 +240,10 @@ where
             ))
         }
         Err(e) => {
-            let _ = unregister_mount_in_state(workspace_dir, mount_dir);
+            let cancelled = guard.map(|g| g.is_cancel_requested()).unwrap_or(false);
+            if !cancelled {
+                let _ = unregister_mount_in_state(workspace_dir, mount_dir);
+            }
             Err(e)
         }
     }
@@ -527,7 +530,7 @@ where
             Ok(vec![target_file.to_path_buf()])
         }
         InstallOutputFormat::Swm => {
-            let size = split_size_mb.max(100);
+            let size = split_size_mb.clamp(100, 4095);
             let base_swm = dest_dir.join(format!("{stem}.swm"));
             on_log(&format!(
                 "Splitting install.wim into {size} MB parts at '{}'...",

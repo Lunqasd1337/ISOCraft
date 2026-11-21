@@ -141,27 +141,54 @@ pub fn classify_appx_arch(path: &Path) -> &'static str {
     "unknown"
 }
 
+fn is_symlink_or_reparse(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn scan_appx_dependencies(paths: &[String]) -> DependencyScanResult {
     let mut compatible = Vec::new();
     let mut skipped_incompatible = Vec::new();
 
     for raw in paths {
         let p = PathBuf::from(raw);
-        if p.is_dir() {
+        let Ok(top_meta) = fs::symlink_metadata(&p) else {
+            continue;
+        };
+        if is_symlink_or_reparse(&top_meta) {
+            continue;
+        }
+        if top_meta.is_dir() {
             let mut stack = vec![p];
             while let Some(dir) = stack.pop() {
                 if let Ok(entries) = fs::read_dir(&dir) {
                     for entry in entries.flatten() {
                         let child = entry.path();
-                        if child.is_dir() {
+                        let Ok(meta) = fs::symlink_metadata(&child) else {
+                            continue;
+                        };
+                        if is_symlink_or_reparse(&meta) {
+                            continue;
+                        }
+                        if meta.is_dir() {
                             stack.push(child);
-                        } else if child.is_file() && is_appx_package_file(&child) {
+                        } else if meta.is_file() && is_appx_package_file(&child) {
                             classify_and_push(&child, &mut compatible, &mut skipped_incompatible);
                         }
                     }
                 }
             }
-        } else if p.is_file() && is_appx_package_file(&p) {
+        } else if top_meta.is_file() && is_appx_package_file(&p) {
             classify_and_push(&p, &mut compatible, &mut skipped_incompatible);
         }
     }

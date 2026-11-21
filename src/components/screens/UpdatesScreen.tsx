@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatBytes } from "../../utils/format";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -28,19 +29,6 @@ interface UpdatesScreenProps {
   workspaceDir?: string;
   updatesQueue: UpdatesQueueState;
   onChangeUpdatesQueue: (next: UpdatesQueueState) => void;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(0)} KB`;
-  }
-  return `${bytes} B`;
 }
 
 export function UpdatesScreen({
