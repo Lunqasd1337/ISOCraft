@@ -13,7 +13,7 @@
   - `commands.rs` — 24 `#[tauri::command]` IPC-обработчика (`check_environment`, `inspect_image`, `load_image_catalog`, команды сканирования, пресетов, `start_build`, `cancel_build`, `recover_workspace`, `force_cancel_and_close`).
   - `pipeline.rs` — оркестратор 9-шагового пайплайна `run_build_pipeline` и проверка защиты от перезаписи исходного образа (`paths_overlap_source`).
 - **`src-tauri/crates/core/src/`** (`isocraft-core`, чистое ядро без UI/диалогов):
-  - `env.rs` — определение прав администратора, поиск утилит (`dism.exe`, `curl.exe`, `wimlib-imagex.exe`, `xorriso.exe`, `oscdimg.exe`), проверка свободного места (`< 40 ГБ`), чтение/запись `workspace_state.json`.
+  - `env.rs` — определение прав администратора, поиск утилит (`dism.exe`, `curl.exe`, `powershell.exe`, `explorer.exe`, `wimlib-imagex.exe`, `xorriso.exe`, `oscdimg.exe`), снятие Windows verbatim-префикса (`strip_windows_verbatim_prefix` для `\\?\` / `\\?\UNC\`) и нормализация разделителей для `resource_dir()`, проверка свободного места (`< 40 ГБ`), чтение `workspace_state.json`.
   - `settings.rs` — хранение настроек в `%LOCALAPPDATA%\ISOCraft\settings.json`, рабочая папка по умолчанию `%LOCALAPPDATA%\ISOCraft\work`, WebView2 в `%LOCALAPPDATA%\ISOCraft\WebView2`.
   - `logger.rs` — кольцевой буфер логов сессии (`LogEntry`) и экспорт диагностики (`dism.log` + лог приложения).
   - `process.rs` — `ProcessGuard`, запуск CLI без окна консоли (`CREATE_NO_WINDOW`) с построчным стримингом stdout/stderr и принудительное завершение дерева процессов через Win32 ToolHelp (`kill_process_tree`).
@@ -85,7 +85,7 @@
 | `preview_reg_file` | Dry-run парсинг `.reg` (затрагиваемые кусты, статистика операций, предупреждения, ошибки). |
 | `validate_autounattend` | Строгая XML-проверка `autounattend.xml` (корневой элемент `unattend`, стек тегов и `settings[@pass]`). |
 | `export_preset` / `import_preset` | Сохранение и загрузка JSON-пресета (`schemaVersion: "1.0"`) с отчётом об отсутствующих локальных путях. |
-| `open_external_url` | Открытие в браузере разрешённых ссылок (Microsoft Win11 Download, UUP dump). |
+| `open_external_url` | Открытие в браузере разрешённых ссылок (`ALLOWED_URLS`: Microsoft Win11 Download, UUP dump, Microsoft Update Catalog, GitHub и Releases). |
 | `start_build` / `cancel_build` | Запуск 9-шагового пайплайна; безопасная отмена (убийство дерева процессов + откат). |
 | `recover_workspace` | Принудительная выгрузка зависших кустов реестра (`RegUnLoadKeyW`), `/Discard` маунтов и `DISM /Cleanup-Wim`. |
 | `force_cancel_and_close` | Завершение активных дочерних процессов, очистка рабочей директории и выход по подтверждению `CloseGuardModal`. |

@@ -13,7 +13,7 @@ ISOCraft работает по принципу **«Очередь измене�
 1. **Образ (`ImageScreen`)** — открытие `.iso`, `.wim` и `.esd`; строгая валидация клиентской Windows 11 x64 (`Client`, `x64`, сборка `>= 22000`; `boot.wim`, Server, Win10 и x86/ARM64 блокируются); выбор **одной целевой редакции** (невыбранные редакции автоматически вырезаются при сборке); однократная read-only загрузка каталога с дисковым кешем; быстрые ссылки на официальную загрузку Microsoft и UUP dump; предупреждение при `< 40 ГБ` свободного места.
 2. **Приложения (`AppsScreen`)** — просмотр и удаление Provisioned Appx / MSIX (с защитным предупреждением для критических пакетов `WindowsStore`, `DesktopAppInstaller`, `SecHealthUI`, `WebView2`, `UI.Xaml`, `VCLibs` и т.д.) и добавление новых `.appx` / `.msix` / bundle с фильтрацией зависимостей (`x64`/`neutral`), XML-лицензией или `/SkipLicense`, `/Region:all` и `StubPackageOption`.
 3. **Компоненты (`FeaturesScreen`)** — переключение Optional Features (включая `.NET Framework 3.5` с автоподстановкой `sources\sxs` из ISO или ручным выбором папки `sxs`, `/All`) и Capabilities (`/LimitAccess`).
-4. **Обновления (`UpdatesScreen`)** — интеграция `.msu` / `.cab` пакетов и целых папок с обновлениями (включая цепочку **Windows 11 24H2+ Checkpoint CU → Target CU**), расшифровка кодов ошибок DISM (`0x800f0993`, `0x80073712`, `0x800f081e`, `0x800f0823`) и опциональная очистка `StartComponentCleanup` (без `/ResetBase` по умолчанию).
+4. **Обновления (`UpdatesScreen`)** — интеграция `.msu` / `.cab` пакетов и целых папок с обновлениями (включая цепочку **Windows 11 24H2+ Checkpoint CU → Target CU**), встроенный поиск и загрузка обновлений из **Microsoft Update Catalog** (`CatalogModal`), расшифровка кодов ошибок DISM (`0x800f0993`, `0x80073712`, `0x800f081e`, `0x800f0823`) и опциональная очистка `StartComponentCleanup` (без `/ResetBase` по умолчанию).
 5. **Драйверы (`DriversScreen`)** — инъекция `.inf` драйверов (файлы и папки с `/Recurse`, `/ForceUnsigned`) в `install.wim` и опционально в `boot.wim` (**Index 2 — Windows Setup**) для NVMe / Intel VMD / RAID / USB / NIC при сборке ISO.
 6. **Реестр (`RegistryScreen`)** — очередь `.reg`-файлов с изменением порядка, dry-run предпросмотром и нативным Win32-применением с правами `TrustedInstaller` (`SeBackupPrivilege`/`SeRestorePrivilege`, `REG_OPTION_BACKUP_RESTORE`, `NtDeleteKey`), автоматическим ремаппингом `CurrentControlSet → ControlSet001` (через `Select\Current`) и `HKCU → Users\Default\NTUSER.DAT`.
 7. **Файлы (`FilesScreen`)** — автоматическое копирование пользовательских файлов и папок в `install.wim` (`C:\`) или в корень ISO (`iso_root`) с политиками `Перезаписать` / `Пропустить`, быстрыми пресетами (`Windows\Setup\Scripts`, `Users\Default\Desktop`, `ProgramData`, `Tools`, `sources\$OEM$`) и защитой от перезаписи системных кустов реестра и файлов загрузчика.
@@ -29,7 +29,7 @@ ISOCraft работает по принципу **«Очередь измене�
 - **Rust:** `stable-x86_64-pc-windows-msvc` + Visual Studio Build Tools («Desktop development with C++»).
 - **Node.js:** v20+ и `npm`.
 - **WebView2 Runtime:** встроен в Windows 11.
-- **Системные утилиты Windows:** `dism.exe` и `powershell.exe` (модули `Dism` и `Storage`).
+- **Системные утилиты Windows:** `dism.exe`, `curl.exe` и `powershell.exe` (модули `Dism` и `Storage`).
 - **Опционально для сборки ISO:** Windows ADK (`oscdimg.exe`). Если не установлен, автоматически используется open-source `xorriso.exe`.
 
 ---
@@ -107,21 +107,26 @@ cargo test -p isocraft-core --offline
 │   └── PRESET_SCHEMA.md            # Спецификация JSON-пресетов schemaVersion "1.0"
 ├── src/                            # Frontend (React 19 + TypeScript + Tailwind CSS)
 │   ├── App.tsx                     # Состояние очередей, пресетов, темы и сборки
+│   ├── hooks/
+│   │   └── usePresetWorkflow.ts    # Импорт/экспорт пресетов и перепривязка путей
+│   ├── utils/
+│   │   └── format.ts               # Утилиты форматирования (размеры файлов и т.п.)
 │   ├── types/studio.ts             # Общие TS-контракты (IPC и пресеты)
 │   ├── i18n/locales/{ru,en}.json   # Словари локализации (RU / EN)
 │   └── components/
 │       ├── Titlebar.tsx, Sidebar.tsx, StatusBar.tsx, LogDrawer.tsx
-│       ├── SettingsModal.tsx, CloseGuardModal.tsx
-│       └── screens/                # 8 экранов приложения + AddAppxModal
+│       ├── FluentModal.tsx, SettingsModal.tsx, CloseGuardModal.tsx
+│       └── screens/                # 8 экранов приложения + AddAppxModal, CatalogModal
 └── src-tauri/                      # Backend (Tauri v2 + Rust)
     ├── app.manifest                # UAC requireAdministrator, Common Controls v6, PerMonitorV2
     ├── tauri.conf.json             # Конфиг Tauri (dev.isocraft.app, NSIS, resources)
-    ├── src/lib.rs                  # IPC-команды Tauri и оркестратор start_build
+    ├── src/
+    │   └── {lib,commands,pipeline,state}.rs  # Оболочка Tauri, IPC-команды, состояние и пайплайн
     ├── resources/bin/              # Скачанные wimlib и xorriso (игнорируется git)
     └── crates/core/src/            # Чистое тестируемое ядро (isocraft-core)
         ├── image.rs, wim.rs, iso.rs
         ├── dism.rs, apps.rs, features.rs
-        ├── updates.rs, drivers.rs, files.rs
+        ├── updates.rs, update_catalog.rs, drivers.rs, files.rs
         ├── reg_parser.rs, registry.rs
         ├── preset.rs, settings.rs, env.rs, logger.rs, process.rs
 ```

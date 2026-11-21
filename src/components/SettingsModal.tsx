@@ -239,28 +239,31 @@ export function SettingsModal({
   const renderToolRow = (name: string, tool?: ToolStatus) => (
     <div
       key={name}
-      className="flex items-center justify-between gap-3 py-2 px-3 rounded-md bg-subtle border border-border-subtle"
+      className="py-2 px-3 rounded-md bg-subtle border border-border-subtle space-y-1"
     >
-      <div className="min-w-0">
-        <div className="text-[13px] font-medium font-mono text-text-primary">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[13px] font-medium font-mono text-text-primary truncate">
           {name}
         </div>
-        {tool?.path && (
-          <div className="text-[11px] font-mono text-text-secondary truncate">
-            {tool.path}
-          </div>
+        {tool?.found ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-status-success-bg text-status-success shrink-0">
+            <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+            {t("settings.toolFound")} ({formatSource(tool.source)})
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-status-danger-bg text-status-danger shrink-0">
+            <XCircle className="w-3.5 h-3.5" strokeWidth={1.75} />
+            {t("settings.toolMissing")}
+          </span>
         )}
       </div>
-      {tool?.found ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-status-success-bg text-status-success shrink-0">
-          <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={1.75} />
-          {t("settings.toolFound")} ({formatSource(tool.source)})
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-status-danger-bg text-status-danger shrink-0">
-          <XCircle className="w-3.5 h-3.5" strokeWidth={1.75} />
-          {t("settings.toolMissing")}
-        </span>
+      {tool?.path && (
+        <div
+          title={tool.path}
+          className="text-[11px] font-mono text-text-secondary break-all select-text"
+        >
+          {tool.path}
+        </div>
       )}
     </div>
   );
