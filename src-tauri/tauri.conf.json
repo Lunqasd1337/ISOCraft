@@ -38,7 +38,7 @@
   "plugins": {
     "updater": {
       "requireSignedVersion": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCMjQ3NzQzNzc4MTFBQTQKUldTa0dvRjNRM2NrSzRxelBTRFJLV0I4RCtMY3c1RHJTU0VxUWJVNDlsSDJxNUFEekFzNXZIbXUK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0ODIxOENBMERBRTU5NzkKUldSNVdhNE55aGlDcElHZWNMNk1BZTAybitkVXZHK1VVTVZ3V0Fkc2tyNE9CaE0rYk5MWHBzUXAK",
       "endpoints": [
         "https://github.com/Lunqasd1337/ISOCraft/releases/latest/download/latest.json"
       ],
