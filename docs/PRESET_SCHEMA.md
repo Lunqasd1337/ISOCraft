@@ -7,12 +7,12 @@
 ## 1. Общие правила формата
 
 - **Версия схемы:** поддерживается строго `schemaVersion: "1.0"`. Несовместимая версия отклоняется с ошибкой при импорте.
-- **Кодировка и размер:** UTF-8; при чтении автоматически удаляется UTF-8 BOM (`\u{feff}`). Максимальный размер файла пресета — **16 МиБ**.
+- **Кодировка и размер:** UTF-8; при чтении автоматически удаляется UTF-8 BOM (`\u{feff}`). Максимальный размер файла пресета — **16 МиБ**. При импорте сам файл пресета не может быть символической ссылкой или NTFS reparse-точкой (`read_file_bounded` с `reject_symlink: true`).
 - **Безопасность путей:** любые сетевые UNC-пути и пути устройств Windows (`\\server\share\...`, `\\.\...`) запрещены (`reject_unc_paths_in_preset`) и отклоняют импорт. При экспорте приложение отказывается перезаписывать символическую ссылку или reparse-точку.
 - **Совместимость:**
   - Неизвестные/устаревшие поля (например, `output.splitSizeMb`) безопасно игнорируются при десериализации.
   - Удалённый формат `output.installFormat: "swm"` отклоняется с ошибкой разбора.
-  - Значение `output.target` приводится к нижнему регистру (`"iso"` или `"image"`, по умолчанию `"iso"`). При импорте ISO-пресета поверх открытого `.wim` или `.esd` в UI `output.target` автоматически приводится к `"image"`, а флаг `injectToBootWim` у драйверов сбрасывается.
+  - При экспорте и импорте `output.target` приводится к нижнему регистру (при пустом значении подставляется `"iso"`). В UI любое значение, отличное от `"iso"`, либо импорт ISO-пресета поверх открытого `.wim` или `.esd` приводит `output.target` к `"image"` и сбрасывает флаг `injectToBootWim` у драйверов.
 
 ---
 
@@ -54,7 +54,7 @@
   - Объект (рекомендуется, создаётся при экспорте): `{ "packageFamilyName": string, "displayNameHint"?: string | null }`
   - Строка (обратная совместимость): `"Microsoft.BingNews_8wekyb3d8bbwe"`
   Во время сборки `packageFamilyName` автоматически разрешается в точный `PackageName` смонтированной редакции.
-- **`addPackages`**: массив объектов `AddAppxRequest`:
+- **`addPackages`**: массив объектов `PresetAddAppx` (соответствует `AddAppxRequest` во фронтенде):
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
@@ -75,11 +75,14 @@
 | `capabilitiesRemove` | `string[]` | `[]` | Имена удаляемых Capabilities. |
 | `defaultSxsPath` | `string \| null` | `null` | Пользовательская папка `sxs` по умолчанию (перекрывает автоподстановку `sources\sxs` из ISO). |
 
+> [!NOTE]
+> При загрузке пресета в UI (`usePresetWorkflow.ts`) общий путь `customSxsPath` берётся из `defaultSxsPath` (или первого заданного `customSxsPath` среди `enable`/`capabilitiesAdd`), а индивидуальные настройки `enableAll`, `limitAccess` и `customSxsPath` сохраняются в `featureOverrides`/`capabilityOverrides` и воспроизводятся при следующем экспорте и сборке.
+
 ### 3.4. `updates` (`UpdatesBuildPlan`)
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
-| `items` | `{ path: string, isDirectory: boolean }[]` | `[]` | Очередь `.msu` / `.cab` файлов или папок с обновлениями (в т.ч. папок 24H2+ с Checkpoint CU). |
+| `items` | `{ path: string, isDirectory: boolean }[]` | `[]` | Очередь `.msu` / `.cab` файлов или папок с обновлениями (в т.ч. папок 24H2+ с Checkpoint CU). Внутри каждого элемента оба поля (`path`, `isDirectory`) обязательны. |
 | `runComponentCleanup` | `boolean` | `false` | Выполнять ли `DISM /Cleanup-Image /StartComponentCleanup`. |
 | `cleanupResetBase` | `boolean` | `false` | Передавать ли `/ResetBase` (по умолчанию выключено). |
 
@@ -100,18 +103,18 @@
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
-| `regFiles` | `{ path: string, enabled: boolean }[]` | `[]` | Упорядоченный список `.reg`-файлов и состояние их активности. |
+| `regFiles` | `{ path: string, enabled: boolean }[]` | `[]` | Упорядоченный список `.reg`-файлов и состояние их активности. Внутри каждого элемента оба поля (`path`, `enabled`) обязательны. |
 
 ### 3.7. `files` (`FilesBuildPlan`, опциональный раздел)
 
-Элементы массива `files.items` (`FileInjectionItem`):
+Раздел `files` и массив `files.items` по умолчанию пусты (`[]`). Внутри каждого элемента `FileInjectionItem` обязательны поля `sourcePath`, `isDirectory`, `target`, `destinationPath`:
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
-| `sourcePath` | `string` | `""` | Путь к исходному файлу или папке на диске. |
-| `isDirectory` | `boolean` | `false` | Является ли источник каталогом. |
-| `target` | `"installWim" \| "isoRoot"` | — | Целевой контейнер (`C:\` внутри `install.wim` или корень ISO). |
-| `destinationPath` | `string` | `""` | Относительный путь назначения (`""` — корень контейнера). |
+| `sourcePath` | `string` | `—` (обязательно) | Путь к исходному файлу или папке на диске. |
+| `isDirectory` | `boolean` | `—` (обязательно) | Является ли источник каталогом. |
+| `target` | `"installWim" \| "isoRoot"` | `—` (обязательно) | Целевой контейнер (`C:\` внутри `install.wim` или корень ISO). |
+| `destinationPath` | `string` | `—` (обязательно) | Относительный путь назначения (`""` — корень контейнера). |
 | `conflictPolicy` | `"overwrite" \| "skip"` | `"overwrite"` | Политика при совпадении пути существующего файла. |
 
 ### 3.8. `output` (`PresetOutput`)
@@ -129,7 +132,7 @@
 
 ## 4. Аудит отсутствующих локальных путей (`PresetImportResult`)
 
-При вызове `import_preset` функция `find_missing_preset_paths` проверяет наличие на диске всех локальных файлов и папок и возвращает объект `{ preset, missingPaths }`. Каждый элемент `MissingPresetPath` содержит поля `id`, `kind`, `expectedDirectory`, `path`, `parentPath`.
+При вызове `import_preset` функция `find_missing_preset_paths` проверяет наличие на диске всех локальных файлов и папок (`appxLicense` проверяется всегда, когда `licensePath` непустой) и возвращает объект `{ preset, missingPaths }`. Каждый элемент `MissingPresetPath` содержит поля `id`, `kind`, `expectedDirectory`, `path`, `parentPath`.
 
 | `kind` (`MissingPathKind`) | `expectedDirectory` | Источник в пресете |
 | :--- | :---: | :--- |
@@ -143,7 +146,7 @@
 | `customFile` | `item.isDirectory` | `files.items[].sourcePath` |
 | `autounattendXml` | `false` | `output.autounattendPath` |
 
-На экране **«Сборка и пресеты»** карточка `MissingPresetPathsCard` подсвечивает каждый отсутствующий элемент с кнопками **«Указать путь...»** (перепривязка через нативный диалог с повторным сканированием) и **«Удалить»**.
+На экране **«Сборка и пресеты»** карточка `MissingPresetPathsCard` подсвечивает каждый отсутствующий элемент с кнопками **«Указать путь...»** (перепривязка через нативный диалог с повторным сканированием) и **«Удалить»**; список автоматически очищается по мере исправления или удаления соответствующих элементов в очередях.
 
 ---
 
