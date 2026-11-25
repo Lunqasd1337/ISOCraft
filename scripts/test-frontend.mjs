@@ -1,0 +1,462 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  bumpSemver,
+  checkVersionFiles,
+  normalizeVersion,
+  resolveTargetVersion,
+  syncVersionFiles,
+} from "./sync-version.mjs";
+
+let esbuildBuild;
+try {
+  ({ build: esbuildBuild } = await import("esbuild"));
+} catch {
+  console.error(
+    "Missing 'esbuild' dependency. Run 'npm ci' or 'npm install' before running frontend tests."
+  );
+  process.exit(1);
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, "..");
+
+async function loadFrontendModules() {
+  const result = await esbuildBuild({
+    stdin: {
+      contents: `
+        export * as destinationValidation from "./src/utils/destinationValidation";
+        export * as win11Version from "./src/utils/win11Version";
+        export * as format from "./src/utils/format";
+        export * as backendErrors from "./src/utils/backendErrors";
+        export { default as i18n } from "./src/i18n";
+      `,
+      resolveDir: rootDir,
+      loader: "ts",
+    },
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    write: false,
+    logLevel: "silent",
+  });
+
+  const code = result.outputFiles[0].text;
+  const moduleObj = { exports: {} };
+  const storage = new Map();
+  const mockLocalStorage = {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  };
+  const mockWindow = { localStorage: mockLocalStorage };
+  const mockDocument = { documentElement: { lang: "en" } };
+  const mockNavigator = { language: "en-US", languages: ["en-US"] };
+  const cjsRequire = createRequire(import.meta.url);
+
+  const runner = new Function(
+    "exports",
+    "require",
+    "module",
+    "__filename",
+    "__dirname",
+    "window",
+    "document",
+    "navigator",
+    "localStorage",
+    code
+  );
+  runner(
+    moduleObj.exports,
+    cjsRequire,
+    moduleObj,
+    path.join(rootDir, "virtual-frontend-tests.cjs"),
+    rootDir,
+    mockWindow,
+    mockDocument,
+    mockNavigator,
+    mockLocalStorage
+  );
+
+  return { mod: moduleObj.exports, mockDocument };
+}
+
+const { mod, mockDocument } = await loadFrontendModules();
+const { destinationValidation, win11Version, format, backendErrors, i18n } = mod;
+
+let passed = 0;
+function test(name, fn) {
+  fn();
+  passed += 1;
+  console.log(`  ok - ${name}`);
+}
+
+console.log("Running frontend unit tests...");
+
+test("destinationValidation.getBaseName extracts trailing segment across separators", () => {
+  assert.equal(destinationValidation.getBaseName("C:\\Tools\\setup.exe"), "setup.exe");
+  assert.equal(destinationValidation.getBaseName("/opt/scripts/run.ps1"), "run.ps1");
+  assert.equal(destinationValidation.getBaseName("C:\\Tools\\MyApp\\"), "MyApp");
+  assert.equal(destinationValidation.getBaseName("plain.txt"), "plain.txt");
+});
+
+test("destinationValidation.defaultDestinationForScan chooses defaults by type and extension", () => {
+  assert.equal(
+    destinationValidation.defaultDestinationForScan({
+      path: "C:\\Payload\\AppDir",
+      isDirectory: true,
+      sizeBytes: 0,
+      fileCount: 3,
+    }),
+    ""
+  );
+  for (const ext of ["cmd", "bat", "ps1"]) {
+    assert.equal(
+      destinationValidation.defaultDestinationForScan({
+        path: `C:\\Scripts\\FirstLogon.${ext}`,
+        isDirectory: false,
+        sizeBytes: 120,
+        fileCount: 1,
+      }),
+      "Windows\\Setup\\Scripts"
+    );
+  }
+  assert.equal(
+    destinationValidation.defaultDestinationForScan({
+      path: "C:\\Tools\\app.exe",
+      isDirectory: false,
+      sizeBytes: 1024,
+      fileCount: 1,
+    }),
+    "Tools"
+  );
+});
+
+test("destinationValidation.validateDestinationClient rejects traversal, UNC, drives, reserved names and trailing dots/spaces", () => {
+  const invalidInputs = [
+    "..",
+    "Windows\\..\\System32",
+    "\\\\server\\share\\dir",
+    "C:\\Windows\\Temp",
+    "Folder:Stream",
+    "Bad<Name>",
+    "...",
+    "Windows\\\\DoubleSlash",
+    "CON",
+    "Windows\\nul\\Sub",
+    "Folder.",
+    "Folder \\Sub",
+  ];
+  for (const dest of invalidInputs) {
+    const res = destinationValidation.validateDestinationClient("installWim", dest, "file.txt");
+    assert.equal(res.errorKey, "invalidDestTraversal", `Expected traversal error for ${dest}`);
+  }
+  for (const badBaseName of ["NUL.txt", "COM1", "LPT9.log", "file.", "file "]) {
+    const res = destinationValidation.validateDestinationClient("installWim", "Tools", badBaseName);
+    assert.equal(
+      res.errorKey,
+      "invalidDestTraversal",
+      `Expected reserved/trailing error for baseName ${badBaseName}`
+    );
+  }
+});
+
+test("destinationValidation.validateDestinationClient protects critical installWim and isoRoot targets", () => {
+  assert.equal(
+    destinationValidation.validateDestinationClient(
+      "installWim",
+      "Windows\\System32\\config",
+      "SYSTEM"
+    ).errorKey,
+    "invalidDestProtected"
+  );
+  assert.equal(
+    destinationValidation.validateDestinationClient(
+      "installWim",
+      "Users/Default",
+      "NTUSER.DAT"
+    ).errorKey,
+    "invalidDestProtected"
+  );
+  assert.equal(
+    destinationValidation.validateDestinationClient("isoRoot", "sources", "install.wim").errorKey,
+    "invalidDestProtected"
+  );
+  assert.equal(
+    destinationValidation.validateDestinationClient("isoRoot", "sources", "install2.swm").errorKey,
+    "invalidDestProtected"
+  );
+  assert.equal(
+    destinationValidation.validateDestinationClient("isoRoot", "efi/microsoft/boot", "efisys.bin")
+      .errorKey,
+    "invalidDestProtected"
+  );
+  assert.equal(
+    destinationValidation.validateDestinationClient("isoRoot", "", "bootmgr").errorKey,
+    "invalidDestProtected"
+  );
+});
+
+test("destinationValidation.validateDestinationClient normalizes valid relative paths", () => {
+  const res = destinationValidation.validateDestinationClient(
+    "installWim",
+    " /Windows/Setup/Scripts\\ ",
+    "setupcomplete.cmd"
+  );
+  assert.deepEqual(res, {
+    errorKey: null,
+    cleanDir: "Windows\\Setup\\Scripts",
+  });
+
+  const customTools = destinationValidation.validateDestinationClient(
+    "isoRoot",
+    "Soft/Utils",
+    "install.wim"
+  );
+  assert.deepEqual(customTools, {
+    errorKey: null,
+    cleanDir: "Soft\\Utils",
+  });
+});
+
+test("win11Version.resolveWin11Version maps build thresholds accurately", () => {
+  assert.equal(win11Version.resolveWin11Version(null), "26H2");
+  assert.equal(win11Version.resolveWin11Version(26300), "26H2");
+  assert.equal(win11Version.resolveWin11Version(26200), "25H2");
+  assert.equal(win11Version.resolveWin11Version(26100), "24H2");
+  assert.equal(win11Version.resolveWin11Version(22631), "23H2");
+  assert.equal(win11Version.resolveWin11Version(22621), "22H2");
+  assert.equal(win11Version.resolveWin11Version(22000), "21H2");
+  assert.equal(win11Version.resolveWin11Version(19045), "26H2");
+});
+
+test("format.formatBytes formats B/KB/MB/GB in EN and RU", () => {
+  i18n.changeLanguage("en");
+  assert.equal(mockDocument.documentElement.lang, "en");
+  assert.equal(format.formatBytes(512), "512 B");
+  assert.equal(format.formatBytes(2048), "2 KB");
+  assert.equal(format.formatBytes(5 * 1024 * 1024), "5.0 MB");
+  assert.equal(format.formatBytes(2.5 * 1024 * 1024 * 1024), "2.50 GB");
+
+  i18n.changeLanguage("ru");
+  assert.equal(mockDocument.documentElement.lang, "ru");
+  assert.equal(format.formatBytes(512), "512 Б");
+  assert.equal(format.formatBytes(2048), "2 КБ");
+  assert.equal(format.formatBytes(5 * 1024 * 1024), "5.0 МБ");
+  assert.equal(format.formatBytes(2.5 * 1024 * 1024 * 1024), "2.50 ГБ");
+});
+
+test("i18n pluralization handles RU and EN storageFilesCount forms", () => {
+  i18n.changeLanguage("ru");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 1 }), "1 файл");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 2 }), "2 файла");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 5 }), "5 файлов");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 21 }), "21 файл");
+
+  i18n.changeLanguage("en");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 1 }), "1 file");
+  assert.equal(i18n.t("settings.storageFilesCount", { count: 2 }), "2 files");
+});
+
+test("backendErrors.localizeBackendError and localizeXmlError translate known strings and pass through unknown ones", () => {
+  i18n.changeLanguage("ru");
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Cannot clear workspace cache while an image operation is running."
+    ),
+    i18n.t("backendErrors.cannotClearCacheWhileBusy")
+  );
+  assert.notEqual(
+    backendErrors.localizeBackendError(
+      "Cannot clear workspace cache while an image operation is running."
+    ),
+    "Cannot clear workspace cache while an image operation is running."
+  );
+  assert.equal(
+    backendErrors.localizeBackendError("explorer.exe not found in Windows directory."),
+    i18n.t("backendErrors.explorerNotFound")
+  );
+  assert.notEqual(
+    backendErrors.localizeBackendError("explorer.exe not found in Windows directory."),
+    "explorer.exe not found in Windows directory."
+  );
+  assert.equal(
+    backendErrors.localizeBackendError("Some unmapped custom error 42"),
+    "Some unmapped custom error 42"
+  );
+
+  i18n.changeLanguage("en");
+  assert.equal(
+    backendErrors.localizeBackendError("explorer.exe not found in Windows directory."),
+    i18n.t("backendErrors.explorerNotFound")
+  );
+
+  i18n.changeLanguage("ru");
+  const xmlTranslated = backendErrors.localizeXmlError(
+    "Expected root XML element <unattend>, found <settings>."
+  );
+  assert.ok(xmlTranslated.includes("<settings>"));
+  assert.notEqual(xmlTranslated, "Expected root XML element <unattend>, found <settings>.");
+  const xmlUncTranslated = backendErrors.localizeXmlError(
+    "UNC network or device paths are not allowed for '\\\\server\\share\\unattend.xml'."
+  );
+  assert.notEqual(
+    xmlUncTranslated,
+    "UNC network or device paths are not allowed for '\\\\server\\share\\unattend.xml'."
+  );
+  assert.equal(
+    backendErrors.localizeXmlError("Arbitrary XML note"),
+    "Arbitrary XML note"
+  );
+
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Cannot change workspace directory while an image operation is running."
+    ),
+    i18n.t("backendErrors.cannotChangeWorkspaceWhileBusy")
+  );
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Selected oscdimg.exe must be a valid Microsoft-signed binary inside a protected Program Files directory."
+    ),
+    i18n.t("backendErrors.oscdimgUntrusted")
+  );
+  assert.notEqual(
+    backendErrors.localizeBackendError(
+      "Downloaded update 'kb123.msu' failed Microsoft Authenticode signature verification."
+    ),
+    "Downloaded update 'kb123.msu' failed Microsoft Authenticode signature verification."
+  );
+  assert.equal(
+    backendErrors.localizeRegMessage(
+      "Line 3: REG_LINK (hex(6)) values are not allowed in offline registry files."
+    ),
+    i18n.t("regMessages.linePrefix", {
+      line: "3",
+      message: i18n.t("regMessages.regLinkNotAllowed"),
+    })
+  );
+});
+
+test("syncVersion.normalizeVersion & bumpSemver handle valid/invalid versions", () => {
+  assert.equal(normalizeVersion("0.4.3"), "0.4.3");
+  assert.equal(normalizeVersion(" v0.4.3 "), "0.4.3");
+  assert.equal(normalizeVersion("v0.5.0-rc.1"), "0.5.0-rc.1");
+
+  for (const bad of ["0.4", "latest", "v1.2.3.4", ""]) {
+    assert.throws(() => normalizeVersion(bad), /Invalid SemVer version/);
+  }
+
+  assert.equal(bumpSemver("0.4.2", "patch"), "0.4.3");
+  assert.equal(bumpSemver("0.4.2", "minor"), "0.5.0");
+  assert.equal(bumpSemver("0.4.2", "major"), "1.0.0");
+  assert.equal(bumpSemver("0.4.3-rc.1", "patch"), "0.4.4");
+});
+
+test("syncVersion.resolveTargetVersion picks max tag/package and resolves prerelease", () => {
+  assert.deepEqual(
+    resolveTargetVersion({
+      explicitVersion: "",
+      bump: "patch",
+      existingTags: ["v0.3.0", "v0.4.2", "v0.4.1", "non-semver"],
+      currentPackageVersion: "0.2.0",
+      prereleaseMode: "auto",
+    }),
+    {
+      version: "0.4.3",
+      tagName: "v0.4.3",
+      winVersion: "0.4.3.0",
+      isPrerelease: false,
+    }
+  );
+
+  assert.deepEqual(
+    resolveTargetVersion({
+      explicitVersion: "v0.5.0-rc.1",
+      prereleaseMode: "auto",
+    }),
+    {
+      version: "0.5.0-rc.1",
+      tagName: "v0.5.0-rc.1",
+      winVersion: "0.5.0.0",
+      isPrerelease: true,
+    }
+  );
+
+  assert.equal(
+    resolveTargetVersion({
+      explicitVersion: "0.5.0-rc.1",
+      prereleaseMode: "false",
+    }).isPrerelease,
+    false
+  );
+  assert.equal(
+    resolveTargetVersion({
+      explicitVersion: "0.4.3",
+      prereleaseMode: "true",
+    }).isPrerelease,
+    true
+  );
+});
+
+test("syncVersion.syncVersionFiles & checkVersionFiles synchronize all 7 project files cleanly", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "isocraft-ver-"));
+  const relFiles = [
+    "package.json",
+    "package-lock.json",
+    "src-tauri/tauri.conf.json",
+    "src-tauri/Cargo.toml",
+    "src-tauri/crates/core/Cargo.toml",
+    "src-tauri/Cargo.lock",
+    "src-tauri/app.manifest",
+  ];
+  try {
+    for (const rel of relFiles) {
+      const src = path.join(rootDir, ...rel.split("/"));
+      const dst = path.join(tmpDir, ...rel.split("/"));
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+    }
+
+    const res = syncVersionFiles(tmpDir, "0.4.3-rc.1");
+    assert.deepEqual(res, { version: "0.4.3-rc.1", winVersion: "0.4.3.0" });
+    checkVersionFiles(tmpDir, "0.4.3-rc.1");
+
+    const manifest = fs.readFileSync(
+      path.join(tmpDir, "src-tauri", "app.manifest"),
+      "utf8"
+    );
+    assert.ok(manifest.includes('version="0.4.3.0"'));
+    assert.ok(manifest.includes('version="6.0.0.0"'));
+
+    const cargoLock = fs.readFileSync(
+      path.join(tmpDir, "src-tauri", "Cargo.lock"),
+      "utf8"
+    );
+    assert.ok(
+      cargoLock.includes('name = "isocraft"\r\nversion = "0.4.3-rc.1"') ||
+        cargoLock.includes('name = "isocraft"\nversion = "0.4.3-rc.1"')
+    );
+    assert.ok(
+      cargoLock.includes('name = "isocraft-core"\r\nversion = "0.4.3-rc.1"') ||
+        cargoLock.includes('name = "isocraft-core"\nversion = "0.4.3-rc.1"')
+    );
+
+    assert.throws(() => checkVersionFiles(tmpDir, "0.4.4"), /Version check failed/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+console.log(`Frontend unit tests passed: ${passed} suites.`);

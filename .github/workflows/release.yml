@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Target SemVer version (e.g. 0.4.3 or 0.5.0-rc.1). Leave empty to auto-bump from latest v* tag."
+        required: false
+        type: string
+      bump:
+        description: "Auto-bump level when version is empty"
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      commit_version:
+        description: "Commit synced version files to current branch and push tag"
+        type: boolean
+        default: true
+      release_draft:
+        description: "Create GitHub Release as draft for manual review before publishing"
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark release as prerelease (auto = true when version has -suffix)"
+        type: choice
+        default: auto
+        options:
+          - auto
+          - "false"
+          - "true"
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish-tauri:
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify allowed branch for workflow_dispatch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+        shell: pwsh
+        run: |
+          Write-Error "Manual releases are only permitted from main or master branches (got '$env:GITHUB_REF')."
+          exit 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust stable
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Resolve target release version
+        id: version
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_BUMP: ${{ github.event.inputs.bump || 'patch' }}
+          INPUT_PRERELEASE: ${{ github.event.inputs.prerelease || 'auto' }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $resolveArgs = @(
+              'scripts/sync-version.mjs',
+              '--resolve',
+              '--git-tags',
+              '--bump', $env:INPUT_BUMP,
+              '--prerelease', $env:INPUT_PRERELEASE
+            )
+            if (-not [string]::IsNullOrWhiteSpace($env:INPUT_VERSION)) {
+              $resolveArgs += @('--version', $env:INPUT_VERSION.Trim())
+            }
+            $json = & node @resolveArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            $json = & node scripts/sync-version.mjs --resolve --version $env:GITHUB_REF_NAME --prerelease auto
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $resolved = $json | ConvertFrom-Json
+          $ver = $resolved.version
+          $tagName = $resolved.tagName
+          $isPrerelease = if ($resolved.isPrerelease) { 'true' } else { 'false' }
+
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            git rev-parse -q --verify "refs/tags/$tagName" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Error "Tag '$tagName' already exists. Choose a higher version or delete the existing tag first."
+              exit 1
+            }
+            $LASTEXITCODE = 0
+          }
+
+          Write-Host "Resolved release version: $ver (tag: $tagName, prerelease: $isPrerelease)"
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "is_prerelease=$isPrerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Sync or verify version files
+        shell: pwsh
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            node scripts/sync-version.mjs "$env:TARGET_VERSION"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          node scripts/sync-version.mjs --check "$env:TARGET_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check i18n, frontend tests, and frontend bundle
+        run: |
+          npm run check:i18n
+          npm run test:frontend
+          npm run build
+
+      - name: Check Rust formatting, clippy, and unit tests
+        working-directory: src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo check --workspace --locked
+          cargo test --lib --workspace --locked
+
+      - name: Fetch bundled external tools (wimlib & xorriso)
+        shell: pwsh
+        run: .\scripts\fetch-tools.ps1
+
+      - name: Commit version bump and push release tag
+        if: github.event_name == 'workflow_dispatch' && inputs.commit_version && github.ref_type == 'branch'
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/crates/core/Cargo.toml src-tauri/Cargo.lock src-tauri/app.manifest
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore(release): $env:TAG_NAME [skip ci]"
+            git push origin "HEAD:$env:BRANCH_NAME"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "Version files already match $env:TAG_NAME; skipping bump commit."
+          }
+
+          git tag -a $env:TAG_NAME -m "Release $env:TAG_NAME"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin "refs/tags/$env:TAG_NAME"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and upload Tauri release
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ steps.version.outputs.tag_name }}
+          releaseName: "ISOCraft ${{ steps.version.outputs.tag_name }}"
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.release_draft || github.event_name == 'push' }}
+          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
+          generateReleaseNotes: true
+          updaterJsonPreferNsis: true

@@ -1,0 +1,575 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-canvas: rgb(var(--bg-canvas-rgb));
+  --color-sidebar: rgb(var(--bg-sidebar-rgb));
+  --color-surface: rgb(var(--bg-surface-rgb));
+  --color-subtle: var(--bg-subtle);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-primary: rgb(var(--text-primary-rgb));
+  --color-text-secondary: rgb(var(--text-secondary-rgb));
+  --color-accent: rgb(var(--accent-rgb));
+  --color-accent-hover: rgb(var(--accent-hover-rgb));
+  --color-accent-fg: rgb(var(--accent-fg-rgb));
+  --color-status-success: rgb(var(--status-success-rgb));
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning: rgb(var(--status-warning-rgb));
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-danger: rgb(var(--status-danger-rgb));
+  --color-status-danger-bg: var(--status-danger-bg);
+  --color-switch-off-bg: var(--switch-off-bg);
+  --color-switch-off-border: var(--switch-off-border);
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", monospace;
+}
+
+@layer base {
+  :root {
+    --bg-canvas-rgb: 243 243 243;
+    --bg-sidebar-rgb: 247 247 247;
+    --bg-surface-rgb: 255 255 255;
+    --bg-subtle: rgba(0, 0, 0, 0.04);
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --text-primary-rgb: 27 27 27;
+    --text-secondary-rgb: 93 93 93;
+    --accent-rgb: 0 103 192;
+    --accent-hover-rgb: 0 95 184;
+    --accent-fg-rgb: 255 255 255;
+    --status-success-rgb: 15 123 15;
+    --status-success-bg: #dff6dd;
+    --status-warning-rgb: 157 93 0;
+    --status-warning-bg: #fff4ce;
+    --status-danger-rgb: 196 43 28;
+    --status-danger-bg: #fde7e9;
+    --switch-off-bg: rgba(0, 0, 0, 0.05);
+    --switch-off-border: rgba(0, 0, 0, 0.45);
+  }
+
+  html.dark {
+    --bg-canvas-rgb: 32 32 32;
+    --bg-sidebar-rgb: 28 28 28;
+    --bg-surface-rgb: 43 43 43;
+    --bg-subtle: rgba(255, 255, 255, 0.05);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --text-primary-rgb: 255 255 255;
+    --text-secondary-rgb: 166 166 166;
+    --accent-rgb: 76 194 255;
+    --accent-hover-rgb: 71 177 232;
+    --accent-fg-rgb: 0 0 0;
+    --status-success-rgb: 108 203 95;
+    --status-success-bg: rgba(108, 203, 95, 0.12);
+    --status-warning-rgb: 252 225 0;
+    --status-warning-bg: rgba(252, 225, 0, 0.12);
+    --status-danger-rgb: 255 153 164;
+    --status-danger-bg: rgba(255, 153, 164, 0.12);
+    --switch-off-bg: rgba(255, 255, 255, 0.06);
+    --switch-off-border: rgba(255, 255, 255, 0.52);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background-color: rgb(var(--bg-canvas-rgb));
+    color: rgb(var(--text-primary-rgb));
+  }
+}
+
+@keyframes fluent-screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fluent-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fluent-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fluent-modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fluent-modal-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+}
+
+@keyframes fluent-progress-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+@keyframes fluent-menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fluent-menu-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+}
+
+@keyframes fluent-spin-loop {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fluent-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fluent-icon-pop {
+  0% {
+    transform: scale(0.84);
+  }
+  55% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fluent-icon-spin {
+  0% {
+    transform: scale(0.88) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.12) rotate(180deg);
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+@keyframes fluent-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+}
+
+@keyframes sidebar-icon-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  45% {
+    transform: rotate(210deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes sidebar-icon-grid-tile {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.7);
+  }
+  75% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes sidebar-icon-cpu-core {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.32);
+  }
+  75% {
+    transform: scale(0.88);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes sidebar-icon-pin-up {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes sidebar-icon-pin-down {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(1.5px);
+  }
+}
+
+@keyframes sidebar-icon-pin-left {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(-1.5px);
+  }
+}
+
+@keyframes sidebar-icon-pin-right {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(1.5px);
+  }
+}
+
+@keyframes sidebar-icon-bracket-left {
+  0% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(-2.2px);
+  }
+  78% {
+    transform: translateX(0.4px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sidebar-icon-bracket-right {
+  0% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(2.2px);
+  }
+  78% {
+    transform: translateX(-0.4px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sidebar-icon-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-1.6px);
+  }
+}
+
+@keyframes sidebar-icon-plus-turn {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  55% {
+    transform: scale(1.24) rotate(98deg);
+  }
+  100% {
+    transform: scale(1) rotate(90deg);
+  }
+}
+
+@keyframes sidebar-icon-check-draw {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .animate-fluent-screen {
+    animation: fluent-screen-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-backdrop {
+    animation: fluent-fade-in 150ms ease-out both;
+  }
+  .animate-fluent-backdrop-exit {
+    animation: fluent-fade-out 140ms ease-in forwards;
+  }
+  .animate-fluent-modal {
+    animation: fluent-modal-enter 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-modal-exit {
+    animation: fluent-modal-exit 140ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+  .animate-fluent-indeterminate {
+    animation: fluent-progress-indeterminate 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .fluent-drawer-shell-open {
+    transition: height 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .fluent-drawer-shell-close {
+    transition: height 150ms cubic-bezier(0.4, 0, 1, 1);
+  }
+  .fluent-drawer-panel-open {
+    transition:
+      transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 160ms ease-out;
+  }
+  .fluent-drawer-panel-close {
+    transition:
+      transform 150ms cubic-bezier(0.4, 0, 1, 1),
+      opacity 130ms ease-in;
+  }
+  .animate-fluent-menu {
+    animation: fluent-menu-enter 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: top left;
+  }
+  .animate-fluent-menu-exit {
+    animation: fluent-menu-exit 100ms cubic-bezier(0.4, 0, 1, 1) forwards;
+    transform-origin: top left;
+  }
+  .animate-fluent-spin-loop {
+    animation: fluent-spin-loop 650ms linear infinite;
+  }
+  .segmented-pill {
+    will-change: transform, width;
+    transition: none;
+  }
+  .segmented-pill-animated {
+    will-change: transform, width;
+    transition:
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      width 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-fluent-item {
+    animation: fluent-item-enter 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-icon-pop {
+    animation: fluent-icon-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-fluent-icon-spin {
+    animation: fluent-icon-spin 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fluent-pill {
+    animation: fluent-pill-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .sidebar-hover-pill {
+    will-change: transform, opacity;
+    transition: opacity 140ms ease-out;
+  }
+  .sidebar-hover-pill-sliding {
+    will-change: transform, opacity;
+    transition:
+      transform 210ms cubic-bezier(0.22, 1, 0.36, 1),
+      height 210ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 140ms ease-out;
+  }
+  .sidebar-active-pill {
+    will-change: transform;
+    transition: none;
+  }
+  .sidebar-active-pill-animated {
+    will-change: transform;
+    transition:
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      height 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-sidebar-spin {
+    animation: sidebar-icon-spin 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .animate-sidebar-grid-tile {
+    animation: sidebar-icon-grid-tile 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .animate-sidebar-cpu-core {
+    animation: sidebar-icon-cpu-core 440ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .animate-sidebar-pin-up {
+    animation: sidebar-icon-pin-up 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sidebar-pin-down {
+    animation: sidebar-icon-pin-down 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sidebar-pin-left {
+    animation: sidebar-icon-pin-left 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sidebar-pin-right {
+    animation: sidebar-icon-pin-right 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sidebar-bracket-left {
+    animation: sidebar-icon-bracket-left 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-sidebar-bracket-right {
+    animation: sidebar-icon-bracket-right 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-sidebar-hop {
+    animation: sidebar-icon-hop 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-sidebar-plus-turn {
+    animation: sidebar-icon-plus-turn 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .animate-sidebar-check-draw {
+    stroke-dasharray: 1;
+    animation: sidebar-icon-check-draw 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .sidebar-slider-knob {
+    transition: transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 150ms ease,
+    fill 150ms ease,
+    stroke 150ms ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fluent-screen,
+  .animate-fluent-backdrop,
+  .animate-fluent-backdrop-exit,
+  .animate-fluent-modal,
+  .animate-fluent-modal-exit,
+  .animate-fluent-indeterminate,
+  .animate-fluent-menu,
+  .animate-fluent-menu-exit,
+  .animate-fluent-item,
+  .animate-fluent-icon-pop,
+  .animate-fluent-icon-spin,
+  .animate-fluent-spin-loop,
+  .animate-fluent-pill,
+  .animate-sidebar-spin,
+  .animate-sidebar-grid-tile,
+  .animate-sidebar-cpu-core,
+  .animate-sidebar-pin-up,
+  .animate-sidebar-pin-down,
+  .animate-sidebar-pin-left,
+  .animate-sidebar-pin-right,
+  .animate-sidebar-bracket-left,
+  .animate-sidebar-bracket-right,
+  .animate-sidebar-hop,
+  .animate-sidebar-plus-turn,
+  .animate-sidebar-check-draw {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Fluent thin scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
+}

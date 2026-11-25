@@ -1,0 +1,30 @@
+[workspace]
+members = [".", "crates/core"]
+resolver = "2"
+
+[package]
+name = "isocraft"
+version = "0.5.0"
+description = "Minimalist Windows 11 x64 Client Image Editor"
+authors = ["Lunqasd1337"]
+license = "MIT"
+repository = "https://github.com/Lunqasd1337/ISOCraft"
+edition = "2024"
+
+[lib]
+name = "isocraft_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+isocraft-core = { path = "crates/core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
