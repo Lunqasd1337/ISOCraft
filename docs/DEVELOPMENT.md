@@ -18,7 +18,7 @@
 ## 1. Системные требования и инструменты
 
 - **ОС:** Windows 11 x64.
-- **Rust:** toolchain `stable-x86_64-pc-windows-msvc` с компонентами `rustfmt` и `clippy`.
+- **Rust:** toolchain `stable-x86_64-pc-windows-msvc` (edition `2024`) с компонентами `rustfmt` и `clippy`.
 - **C++ Build Tools:** Visual Studio Build Tools с рабочей нагрузкой «Desktop development with C++» (требуется для линковки Win32/Tauri на Windows).
 - **Node.js:** v22+ (рекомендуется v24 LTS) и `npm`.
 - **WebView2 Runtime:** встроен в Windows 11.
@@ -55,14 +55,17 @@
 # Установка JS-зависимостей
 npm install
 
-# Запуск только Vite-сервера фронтенда (без нативного бэкенда; для вёрстки UI)
+# Запуск только Vite-сервера фронтенда (http://localhost:1420; без нативного бэкенда; для вёрстки UI)
 npm run dev
 
-# Полноценный запуск Tauri v2 в режиме разработки
+# Полноценный запуск Tauri v2 в режиме разработки (с поддержкой HMR на 1421 при TAURI_DEV_HOST)
 npm run tauri dev
 
 # Релизная сборка NSIS-установщика (perMachine) и updater-артефактов
 npm run tauri build
+
+# Локальная сборка только бинарника без упаковки и подписи updater-артефактов
+npm run tauri build -- --no-bundle
 ```
 
 > [!NOTE]
@@ -72,7 +75,7 @@ npm run tauri build
 
 ## 4. Проверки качества и тесты
 
-Все проверки автоматически запускаются в GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) на раннере `windows-latest` при каждом `push` и `pull_request` в `main`/`master`:
+Все проверки автоматически запускаются в GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) на раннере `windows-latest` при каждом `push` и `pull_request` в `main`/`master` (для Node-зависимостей используется `npm ci`):
 
 | Шаг | Команда | Что проверяет |
 | :--- | :--- | :--- |
@@ -82,8 +85,8 @@ npm run tauri build
 | Типы и бандл | `npm run build` | Последовательно запускает `check:i18n`, `tsc --noEmit` и `vite build`. |
 | Форматирование Rust | `cd src-tauri; cargo fmt --all -- --check` | Соответствие кода стилю `rustfmt`. |
 | Линтер Rust | `cd src-tauri; cargo clippy --workspace --all-targets --locked -- -D warnings` | Отсутствие предупреждений Clippy во всех таргетах workspace. |
-| Проверка сборки Rust | `cd src-tauri; cargo check --workspace --locked --offline` | Компиляция `isocraft-core` и `isocraft` без обновления `Cargo.lock` и без сети. |
-| Юнит-тесты Rust | `cd src-tauri; cargo test --lib --workspace --locked --offline` | Все библиотечные тесты `isocraft-core` и `isocraft` (`pipeline::tests`, `preset::tests`, `reg_parser::tests`, `files::tests`, `settings::tests` и др.) без UAC. |
+| Проверка сборки Rust | `cd src-tauri; cargo check --workspace --locked --offline` | Компиляция `isocraft-core` и `isocraft` без обновления `Cargo.lock` и без сети (в CI запускается с `--locked`). |
+| Юнит-тесты Rust | `cd src-tauri; cargo test --lib --workspace --locked --offline` | Все библиотечные тесты `isocraft-core` и `isocraft` (`pipeline::tests`, `preset::tests`, `reg_parser::tests`, `files::tests`, `settings::tests` и др.) без UAC (в CI запускается с `--locked`). |
 
 ---
 
@@ -106,7 +109,7 @@ npm run tauri build
 node scripts/sync-version.mjs --check [version]
 
 # Обновить все 7 файлов до указанной SemVer-версии
-node scripts/sync-version.mjs 0.5.0
+node scripts/sync-version.mjs 0.5.1
 
 # Вычислить следующую версию по тегам git (используется в release.yml)
 node scripts/sync-version.mjs --resolve --git-tags --bump patch --prerelease auto
@@ -114,16 +117,16 @@ node scripts/sync-version.mjs --resolve --git-tags --bump patch --prerelease aut
 
 ### Автоматизированный релиз (`.github/workflows/release.yml`)
 
-Релизный пайплайн работает в двух режимах:
+Релизный пайплайн выполняется в GitHub Actions окружении **`environment: release`** и работает в двух режимах:
 
-1. **Ручной запуск (`Actions → Release → Run workflow`)** из веток `main` или `master`:
-   - Вычисляет целевую версию (или берёт переданную вручную `version`, например `0.4.5` или `0.5.0-rc.1`).
+1. **Ручной запуск (`Actions → Release → Run workflow`)** строго из веток `main` или `master`:
+   - Вычисляет целевую версию (или берёт переданную вручную `version`, например `0.5.1` или `0.6.0-rc.1`) и проверяет, что тег `vX.Y.Z` ещё не существует.
    - Обновляет и проверяет все 7 файлов версии через `sync-version.mjs`.
    - Прогоняет полный набор проверок (`check:i18n`, `test:frontend`, `build`, `cargo fmt`, `cargo clippy`, `cargo check`, `cargo test --lib`).
    - Загружает и верифицирует `wimlib-imagex` + `xorriso` через `.\scripts\fetch-tools.ps1`.
    - При включённом `commit_version` создаёт коммит `chore(release): vX.Y.Z [skip ci]`, ставит аннотированный тег `vX.Y.Z` и пушит его.
-   - Собирает NSIS-установщик и подписывает артефакты (`tauri-apps/tauri-action` с `TAURI_SIGNING_PRIVATE_KEY` и `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), формируя GitHub Release (по умолчанию Draft) с `latest.json` для автообновлений.
-2. **Push тега `v*`** (например, `v0.4.5`): проверяет соответствие версии тега всем 7 файлам, прогоняет проверки и создаёт релиз.
+   - Собирает NSIS-установщик и подписывает артефакты (`tauri-apps/tauri-action` с `TAURI_SIGNING_PRIVATE_KEY` и `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`), формируя GitHub Release (по умолчанию Draft, с `generateReleaseNotes: true` и `updaterJsonPreferNsis: true`) с `latest.json` для автообновлений.
+2. **Push тега `v*`** (например, `v0.5.1`): проверяет соответствие версии тега всем 7 файлам, прогоняет проверки и создаёт GitHub Release в статусе **Draft** (`releaseDraft: true`).
 
 ---
 

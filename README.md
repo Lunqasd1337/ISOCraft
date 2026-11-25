@@ -1,6 +1,6 @@
 # ISOCraft
 
-Минималистичный десктопный редактор установочных образов клиентской **Windows 11 x64** на базе **Tauri v2** (Rust + React 19 + TypeScript + Tailwind CSS).
+Минималистичный десктопный редактор установочных образов клиентской **Windows 11 x64** на базе **Tauri v2** (Rust + React 19 + TypeScript + Tailwind CSS v4).
 
 ISOCraft работает по принципу **«Очередь изменений»**: настройка разделов не монтирует образ и не блокирует интерфейс на каждый клик — все операции накапливаются в памяти и применяются единым 9-шаговым асинхронным пайплайном без изменения исходного файла (`.iso`, `.wim`, `.esd`) на месте.
 
@@ -16,16 +16,16 @@ ISOCraft работает по принципу **«Очередь измене�
 
 | Раздел | Назначение и ключевые функции |
 | :--- | :--- |
-| **1. Образ** (`ImageScreen`) | Открытие `.iso`, `.wim`, `.esd`; строгая проверка клиентской Windows 11 x64 (`Client`, `x64`, `build >= 22000`; блокировка `boot.wim`, Server, Win10, x86/ARM64); выбор **одной целевой редакции**; однократная read-only инспекция каталога с дисковым кешем; ссылки на официальный образ Microsoft и UUP dump. |
+| **1. Образ** (`ImageScreen`) | Открытие `.iso`, `.wim`, `.esd`; строгая проверка клиентской Windows 11 x64 (`Client`, `x64`, `build >= 22000`; блокировка `boot.wim`, Server, Win10, x86/ARM64); выбор **одной целевой редакции** с защитой очередей от случайного сброса (`ConfirmResetModal`); однократная read-only инспекция каталога с дисковым кешем; ссылки на официальный образ Microsoft и UUP dump. |
 | **2. Приложения** (`AppsScreen`) | Просмотр и удаление Provisioned Appx / MSIX (с защитой системных пакетов `WindowsStore`, `DesktopAppInstaller`, `SecHealthUI`, `WebView2`, `UI.Xaml`, `VCLibs` и т.д.); добавление `.appx` / `.msix` / bundle с фильтрацией зависимостей (`x64`/`neutral`), XML-лицензией или `/SkipLicense`, `/Region:all` и `StubPackageOption`. |
 | **3. Компоненты** (`FeaturesScreen`) | Включение/отключение Optional Features (включая `.NET Framework 3.5` с автоподстановкой `sources\sxs` из ISO или ручной папкой `sxs`, `/All`) и Capabilities (`/LimitAccess`). |
-| **4. Обновления** (`UpdatesScreen`) | Очередь `.msu` / `.cab` пакетов и целых папок (включая цепочку **Windows 11 24H2+ Checkpoint CU → Target CU**); встроенный поиск и HTTPS-загрузка из **Microsoft Update Catalog** с проверкой подписи Authenticode; расшифровка ошибок DISM; опциональный `StartComponentCleanup` (без `/ResetBase` по умолчанию). |
+| **4. Обновления** (`UpdatesScreen`) | Очередь `.msu` / `.cab` пакетов и целых папок (включая цепочку **Windows 11 24H2+ Checkpoint CU → Target CU**); встроенный поиск и HTTPS-загрузка из **Microsoft Update Catalog** с проверкой подписи Authenticode; расшифровка ошибок DISM. |
 | **5. Драйверы** (`DriversScreen`) | Инъекция `.inf` драйверов (файлы и папки с `/Recurse`, `/ForceUnsigned`) в `install.wim` и опционально в `boot.wim` (**Index 2 — Windows Setup**) для NVMe / Intel VMD / RAID / USB / NIC. |
 | **6. Реестр** (`RegistryScreen`) | Очередь `.reg`-файлов v5 / `REGEDIT4` с изменением порядка и dry-run предпросмотром; нативное Win32-применение с правами `TrustedInstaller` (`REG_OPTION_BACKUP_RESTORE`, `NtDeleteKey`); автоматический ремаппинг `CurrentControlSet → Select\Current` и `HKCU → Users\Default\NTUSER.DAT`. |
 | **7. Файлы** (`FilesScreen`) | Копирование пользовательских файлов и папок в `install.wim` (`C:\`) или корень ISO (`iso_root`) с политиками конфликтов `Overwrite` / `Skip`, быстрыми пресетами и защитой системных кустов и файлов загрузчика. |
-| **8. Сборка и пресеты** (`BuildScreen`) | Экспорт/импорт JSON-пресетов (`schemaVersion: "1.0"`) с перепривязкой перемещённых путей; вывод в `ISO` или `Только install-образ` (`WIM` / `ESD`); валидация `autounattend.xml`; генерация `sources\ei.cfg`; выбор `efisys_noprompt.bin` / `efisys.bin`; метка тома; 9-шаговый прогресс и экспорт диагностики. |
+| **8. Сборка и пресеты** (`BuildScreen`) | Экспорт/импорт JSON-пресетов (`schemaVersion: "1.0"`) с перепривязкой перемещённых путей; интерактивная сводка очередей; вывод в `ISO` или `Только install-образ` (`WIM` / `ESD`); опциональная очистка `StartComponentCleanup` (и `/ResetBase` с предупреждением); валидация `autounattend.xml`; генерация `sources\ei.cfg`; выбор `efisys_noprompt.bin` / `efisys.bin`; метка тома; 9-шаговый прогресс с таймером и экспорт диагностики. |
 
-**Системные возможности:** безрамочный заголовок (`RU | EN`, темы **Light / Dark / System**), сохранение размеров окна, нижняя панель статуса с виртуальным журналом `LogDrawer`, управление кешем и загрузками в настройках, защита от закрытия при активной сборке (`CloseGuardModal`), автообнаружение и откат зависших маунтов/кустов (`workspace_state.json`), подписанные автообновления приложения (`tauri-plugin-updater`).
+**Системные возможности:** безрамочный заголовок (`RU | EN`, темы **Light / Dark / System**, индикатор доступного обновления приложения на кнопке настроек), сохранение размеров окна, нижняя панель статуса с виртуальным журналом `LogDrawer`, управление кешем и загрузками в настройках, защита от закрытия при активной сборке (`CloseGuardModal`), автообнаружение и откат зависших маунтов/кустов (`workspace_state.json`), подписанные автообновления приложения (`tauri-plugin-updater`).
 
 ---
 
@@ -41,7 +41,7 @@ ISOCraft работает по принципу **«Очередь измене�
 
 ### Для разработчиков
 
-**Требования:** Windows 11 x64, Rust `stable-x86_64-pc-windows-msvc`, Visual Studio Build Tools («Desktop development with C++»), Node.js v20+ и `npm`.
+**Требования:** Windows 11 x64, Rust `stable-x86_64-pc-windows-msvc`, Visual Studio Build Tools («Desktop development with C++»), Node.js v22+ (рекомендуется v24 LTS) и `npm`.
 
 ```powershell
 # 1. Загрузить и проверить по SHA-256 внешние утилиты (wimlib-imagex и MSYS2 xorriso)
@@ -64,7 +64,7 @@ npm run tauri build
 
 ## Проверки и тесты
 
-Локальный набор проверок соответствует CI-пайплайну ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+Локальный набор проверок соответствует CI-пайплайну ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) (в CI команды `cargo check` и `cargo test --lib` запускаются с `--locked`, а локально рекомендуется добавлять `--offline` для проверки автономной сборки):
 
 ```powershell
 # Проверка синхронизации версий во всех 7 файлах проекта
@@ -106,8 +106,8 @@ cargo test --lib --workspace --locked --offline
 │   ├── ARCHITECTURE.md              # Архитектура, 9-шаговый пайплайн, IPC и безопасность
 │   ├── PRESET_SCHEMA.md             # Спецификация JSON-пресетов schemaVersion "1.0"
 │   ├── DEVELOPMENT.md               # Сборка, тестирование, релизы и чек-лист проверки в VM
-│   └── ROADMAP.md                   # План развития (v0.5+)
-├── src/                             # Frontend (React 19 + TypeScript + Tailwind CSS)
+│   └── ROADMAP.md                   # Дорожная карта проекта
+├── src/                             # Frontend (React 19 + TypeScript + Tailwind CSS v4 + Vite 8)
 │   ├── App.tsx                      # Корневое состояние очередей, каталога, тем и сборки
 │   ├── hooks/
 │   │   ├── usePresetWorkflow.ts     # Экспорт/импорт пресетов и перепривязка отсутствующих путей
@@ -148,7 +148,7 @@ cargo test --lib --workspace --locked --offline
 - [Архитектура и пайплайн](docs/ARCHITECTURE.md) — устройство модулей, 9-шаговый пайплайн, полный контракт IPC (29 команд и 5 событий) и модель безопасности.
 - [Схема JSON-пресетов (`1.0`)](docs/PRESET_SCHEMA.md) — формат файлов пресета, значения по умолчанию и аудит локальных путей.
 - [Руководство разработчика](docs/DEVELOPMENT.md) — настройка окружения, внешние утилиты, проверки, выпуск релизов и чек-лист приёмки в VM.
-- [Дорожная карта](docs/ROADMAP.md) — запланированные улучшения.
+- [Дорожная карта](docs/ROADMAP.md) — дорожная карта проекта.
 - [Правила и инварианты для разработки](AGENTS.md) — критические ограничения Windows/UAC/DISM/реестра/UI.
 
 ---
