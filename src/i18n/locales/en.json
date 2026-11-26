@@ -467,6 +467,7 @@
       "cleanupPayloadLabel": "Remove temporary payload installers after completion",
       "waitForNetworkLabel": "Wait for network and winget before installing (up to 120s)",
       "oemNotice": "Before Logon (SYSTEM) runs via Windows\\Setup\\Scripts\\SetupComplete.cmd (Windows skips it on PCs with an OEM firmware key). First Logon (User) tasks and winget run independently on all hardware.",
+      "runOnceElevationNotice": "In RunOnce mode, First Logon scripts and installers run with standard user privileges (unelevated). For system-wide changes (HKLM, services, system folders), use Before Logon (SYSTEM) or FirstLogonCommands (autounattend.xml).",
       "scanError": "Failed to add Post-Setup item: {{error}}",
       "filterAll": "All",
       "phaseBeforeLogon": "Before Logon (SYSTEM)",

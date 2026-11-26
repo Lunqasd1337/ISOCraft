@@ -280,6 +280,12 @@ export function PostSetupScreen({
   const hasFirstLogon = postSetupQueue.items.some(
     (i) => i.enabled && i.phase === "firstLogon"
   );
+  const hasFirstLogonLocalPayload = postSetupQueue.items.some(
+    (i) =>
+      i.enabled &&
+      i.phase === "firstLogon" &&
+      (i.kind === "script" || i.kind === "installer")
+  );
 
   return (
     <div className="space-y-4">
@@ -424,6 +430,14 @@ export function PostSetupScreen({
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-status-warning-bg text-status-warning text-[12px]">
                   <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                   <span>{t("screens.postSetup.autounattendUnavailable")}</span>
+                </div>
+              )}
+
+            {hasFirstLogonLocalPayload &&
+              postSetupQueue.firstLogonMode === "runOnce" && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-canvas border border-border-subtle text-text-secondary text-[12px]">
+                  <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" strokeWidth={1.75} />
+                  <span>{t("screens.postSetup.runOnceElevationNotice")}</span>
                 </div>
               )}
           </FluentReveal>
