@@ -416,10 +416,21 @@ pub fn generate_before_logon_cmd(plan: &PostSetupBuildPlan) -> Option<String> {
             "ps1" => lines.push(format!(
                 r#"powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Payload\{payload_name}"{args_suffix} >> "%ISOCRAFT_LOG%" 2>&1"#
             )),
-            _ => lines.push(format!(
-                r#"call "%~dp0Payload\{payload_name}"{args_suffix} >> "%ISOCRAFT_LOG%" 2>&1"#
-            )),
+            _ => {
+                if args.is_empty() {
+                    lines.push(format!(
+                        r#"cmd.exe /c ""%~dp0Payload\{payload_name}"" >> "%ISOCRAFT_LOG%" 2>&1"#
+                    ));
+                } else {
+                    lines.push(format!(
+                        r#"cmd.exe /c ""%~dp0Payload\{payload_name}"{args_suffix}" >> "%ISOCRAFT_LOG%" 2>&1"#
+                    ));
+                }
+            }
         }
+        lines.push(
+            r#"echo [%date% %time%] Exit code: %errorlevel% >> "%ISOCRAFT_LOG%""#.to_string(),
+        );
     }
 
     if plan.cleanup_temp_files {
@@ -462,6 +473,7 @@ pub fn generate_first_logon_cmd() -> String {
     [
         "@echo off",
         "chcp 65001 >nul",
+        "title ISOCraft Post-Setup",
         r#"powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0first_logon.ps1""#,
     ]
     .join("\r\n")
@@ -485,36 +497,89 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
     let has_msstore = active.iter().any(|(_, i)| {
         i.kind == PostSetupItemKind::Winget && i.winget_source == WingetSource::Msstore
     });
+    let has_scripts = active
+        .iter()
+        .any(|(_, i)| i.kind == PostSetupItemKind::Script);
 
     let mut lines: Vec<String> = vec![
         "$ErrorActionPreference = 'Continue'".to_string(),
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8".to_string(),
         "$OutputEncoding = [System.Text.Encoding]::UTF8".to_string(),
+        "try { $Host.UI.RawUI.WindowTitle = 'ISOCraft Post-Setup' } catch {}".to_string(),
+        "$script:failedCount = 0".to_string(),
         "$logDir = Join-Path $env:LOCALAPPDATA 'ISOCraft'".to_string(),
         "New-Item -ItemType Directory -Path $logDir -Force | Out-Null".to_string(),
         "$logFile = Join-Path $logDir 'post_setup_first_logon.log'".to_string(),
-        "function Write-Log([string]$msg) {".to_string(),
+        "function Write-Log([string]$msg, [string]$color = 'Gray') {".to_string(),
         "    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'".to_string(),
         "    Add-Content -LiteralPath $logFile -Value \"[$ts] $msg\" -Encoding UTF8".to_string(),
+        "    Write-Host \"[$ts] $msg\" -ForegroundColor $color".to_string(),
         "}".to_string(),
-        "Write-Log 'Starting ISOCraft First-Logon Post-Setup'".to_string(),
     ];
+
+    if has_scripts {
+        lines.extend([
+            "function Invoke-LoggedScript([string]$filePath, [string]$argLine) {".to_string(),
+            "    $tmpOut = [System.IO.Path]::GetTempFileName()".to_string(),
+            "    $tmpErr = [System.IO.Path]::GetTempFileName()".to_string(),
+            "    try {".to_string(),
+            "        $proc = Start-Process -FilePath $filePath -ArgumentList $argLine -Wait -NoNewWindow -PassThru -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr"
+                .to_string(),
+            "        foreach ($f in @($tmpOut, $tmpErr)) {".to_string(),
+            "            if (Test-Path -LiteralPath $f) {".to_string(),
+            "                $text = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)"
+                .to_string(),
+            "                if ($text.Trim() -ne '') {".to_string(),
+            "                    Add-Content -LiteralPath $logFile -Value $text.TrimEnd(\"`r\", \"`n\") -Encoding UTF8"
+                .to_string(),
+            "                }".to_string(),
+            "            }".to_string(),
+            "        }".to_string(),
+            "        if ($null -ne $proc) {".to_string(),
+            "            if ($proc.ExitCode -eq 0) { Write-Log 'Exit code: 0' 'Green' } else { $script:failedCount++; Write-Log ('Exit code: ' + $proc.ExitCode) 'Yellow' }"
+                .to_string(),
+            "        }".to_string(),
+            "    } finally {".to_string(),
+            "        Remove-Item -LiteralPath $tmpOut, $tmpErr -Force -ErrorAction SilentlyContinue"
+                .to_string(),
+            "    }".to_string(),
+            "}".to_string(),
+        ]);
+    }
+
+    lines.extend([
+        "Write-Host '============================================================' -ForegroundColor Cyan"
+            .to_string(),
+        "Write-Host '  ISOCraft Post-Setup (First Logon)' -ForegroundColor Cyan".to_string(),
+        "Write-Host '  Installing queued apps and scripts. Please do not close.' -ForegroundColor Gray"
+            .to_string(),
+        "Write-Host ('  Log: ' + $logFile) -ForegroundColor DarkGray".to_string(),
+        "Write-Host '============================================================' -ForegroundColor Cyan"
+            .to_string(),
+        "Write-Log 'Starting ISOCraft First-Logon Post-Setup' 'Cyan'".to_string(),
+    ]);
 
     if has_winget && plan.wait_for_network {
         lines.extend([
+            "$waitLogged = $false".to_string(),
+            "$netReady = $false".to_string(),
             "for ($i = 0; $i -lt 24; $i++) {".to_string(),
             "    $netOk = [System.Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()"
                 .to_string(),
             "    $wingetOk = [bool](Get-Command winget -ErrorAction SilentlyContinue)".to_string(),
-            "    if ($netOk -and $wingetOk) { break }".to_string(),
+            "    if ($netOk -and $wingetOk) { $netReady = $true; break }".to_string(),
+            "    if (-not $waitLogged) { Write-Log 'Waiting for network and winget...' 'DarkGray'; $waitLogged = $true }"
+                .to_string(),
             "    Start-Sleep -Seconds 5".to_string(),
             "}".to_string(),
+            "if ($netReady) { Write-Log 'Network and winget ready.' 'Green' } else { Write-Log 'Timed out waiting for network/winget; continuing anyway.' 'Yellow' }"
+                .to_string(),
         ]);
     }
 
     if has_msstore {
         lines.extend([
-            "Write-Log 'Updating Microsoft.DesktopAppInstaller (App Installer) for msstore support...'"
+            "Write-Log 'Updating Microsoft.DesktopAppInstaller (App Installer) for msstore support...' 'Cyan'"
                 .to_string(),
             "$wingetTmp = Join-Path $env:TEMP 'ISOCraft_AppInstaller'".to_string(),
             "try {".to_string(),
@@ -552,13 +617,14 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
             "        }".to_string(),
             "        Start-Sleep -Seconds 2".to_string(),
             "        $wgVer = (& winget --version 2>&1 | Select-Object -First 1)".to_string(),
-            "        Write-Log ('AppInstaller updated: ' + $wgVer)".to_string(),
+            "        Write-Log ('AppInstaller updated: ' + $wgVer) 'Green'".to_string(),
             "    } else {".to_string(),
-            "        Write-Log ('Skipping AppInstaller update: download failed (exit ' + $bundleExit + ')')"
+            "        Write-Log ('Skipping AppInstaller update: download failed (exit ' + $bundleExit + ')') 'Yellow'"
                 .to_string(),
             "    }".to_string(),
             "} catch {".to_string(),
-            "    Write-Log ('AppInstaller update note: ' + $_.Exception.Message)".to_string(),
+            "    Write-Log ('AppInstaller update note: ' + $_.Exception.Message) 'Yellow'"
+                .to_string(),
             "} finally {".to_string(),
             "    if (Test-Path -LiteralPath $wingetTmp) {".to_string(),
             "        Remove-Item -LiteralPath $wingetTmp -Recurse -Force -ErrorAction SilentlyContinue"
@@ -568,7 +634,9 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
         ]);
     }
 
-    for (idx, item) in active {
+    let total_steps = active.len();
+    for (step_idx, (idx, item)) in active.into_iter().enumerate() {
+        let step_num = step_idx + 1;
         match item.kind {
             PostSetupItemKind::Winget => {
                 let id = item.winget_id.as_deref().unwrap_or("").trim();
@@ -589,7 +657,7 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
                 };
                 let cmd_desc = ps_single_quote(&format_winget_command(item));
                 lines.extend([
-                    format!("Write-Log ('Running: ' + {cmd_desc})"),
+                    format!("Write-Log ('[{step_num}/{total_steps}] Running: ' + {cmd_desc}) 'Cyan'"),
                     "try {".to_string(),
                     format!(
                         "    $wingetOut = & winget install --id {} --exact --silent --accept-package-agreements --accept-source-agreements{source_flag}{scope_flag}{extra_flag} 2>&1",
@@ -597,9 +665,10 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
                     ),
                     "    $wingetExit = $LASTEXITCODE".to_string(),
                     "    $wingetOut | ForEach-Object { $_.ToString() } | Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^\\s*[-\\\\|/]\\s*$' -and $_ -notmatch '[\\u2580-\\u259F]{3,}' } | Add-Content -LiteralPath $logFile -Encoding UTF8".to_string(),
-                    "    Write-Log ('Winget exit code: ' + $wingetExit)".to_string(),
+                    "    if ($wingetExit -eq 0) { Write-Log 'Winget exit code: 0' 'Green' } else { $script:failedCount++; Write-Log ('Winget exit code: ' + $wingetExit) 'Yellow' }".to_string(),
                     "} catch {".to_string(),
-                    "    Write-Log ('Winget error: ' + $_.Exception.Message)".to_string(),
+                    "    $script:failedCount++".to_string(),
+                    "    Write-Log ('Winget error: ' + $_.Exception.Message) 'Red'".to_string(),
                     "}".to_string(),
                 ]);
             }
@@ -615,7 +684,9 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
 
                 lines.extend([
                     format!("$itemPath = Join-Path (Join-Path $PSScriptRoot 'Payload') {q_name}"),
-                    format!("Write-Log ('Executing ' + {q_name})"),
+                    format!(
+                        "Write-Log ('[{step_num}/{total_steps}] Executing ' + {q_name}) 'Cyan'"
+                    ),
                     "try {".to_string(),
                 ]);
 
@@ -623,45 +694,56 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
                     "msi" => {
                         if args.is_empty() {
                             lines.push(
-                                "    Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('\"' + $itemPath + '\"')) -Wait -NoNewWindow"
+                                "    $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList ('/i \"' + $itemPath + '\"') -Wait -NoNewWindow -PassThru"
                                     .to_string(),
                             );
                         } else {
                             lines.push(format!(
-                                "    Start-Process -FilePath 'msiexec.exe' -ArgumentList ('/i \"' + $itemPath + '\" ' + {q_args}) -Wait -NoNewWindow"
+                                "    $proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList ('/i \"' + $itemPath + '\" ' + {q_args}) -Wait -NoNewWindow -PassThru"
                             ));
                         }
+                        lines.push(
+                            "    if ($null -ne $proc) { if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) { Write-Log ('Exit code: ' + $proc.ExitCode) 'Green' } else { $script:failedCount++; Write-Log ('Exit code: ' + $proc.ExitCode) 'Yellow' } }"
+                                .to_string(),
+                        );
                     }
                     "exe" => {
                         if args.is_empty() {
-                            lines.push("    Start-Process -FilePath $itemPath -Wait".to_string());
+                            lines.push(
+                                "    $proc = Start-Process -FilePath $itemPath -Wait -PassThru"
+                                    .to_string(),
+                            );
                         } else {
                             lines.push(format!(
-                                "    Start-Process -FilePath $itemPath -ArgumentList {q_args} -Wait"
+                                "    $proc = Start-Process -FilePath $itemPath -ArgumentList {q_args} -Wait -PassThru"
                             ));
                         }
+                        lines.push(
+                            "    if ($null -ne $proc) { if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) { Write-Log ('Exit code: ' + $proc.ExitCode) 'Green' } else { $script:failedCount++; Write-Log ('Exit code: ' + $proc.ExitCode) 'Yellow' } }"
+                                .to_string(),
+                        );
                     }
                     "ps1" => {
                         if args.is_empty() {
                             lines.push(
-                                "    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('\"' + $itemPath + '\"')) -Wait -NoNewWindow"
+                                "    Invoke-LoggedScript 'powershell.exe' ('-NoProfile -ExecutionPolicy Bypass -File \"' + $itemPath + '\"')"
                                     .to_string(),
                             );
                         } else {
                             lines.push(format!(
-                                "    Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File \"' + $itemPath + '\" ' + {q_args}) -Wait -NoNewWindow"
+                                "    Invoke-LoggedScript 'powershell.exe' ('-NoProfile -ExecutionPolicy Bypass -File \"' + $itemPath + '\" ' + {q_args})"
                             ));
                         }
                     }
                     _ => {
                         if args.is_empty() {
                             lines.push(
-                                "    Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', ('\"' + $itemPath + '\"')) -Wait -NoNewWindow"
+                                "    Invoke-LoggedScript 'cmd.exe' ('/c \"\"' + $itemPath + '\"\"')"
                                     .to_string(),
                             );
                         } else {
                             lines.push(format!(
-                                "    Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c \"\"' + $itemPath + '\" ' + {q_args} + '\"') -Wait -NoNewWindow"
+                                "    Invoke-LoggedScript 'cmd.exe' ('/c \"\"' + $itemPath + '\" ' + {q_args} + '\"')"
                             ));
                         }
                     }
@@ -669,7 +751,8 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
 
                 lines.extend([
                     "} catch {".to_string(),
-                    "    Write-Log ('Execution error: ' + $_.Exception.Message)".to_string(),
+                    "    $script:failedCount++".to_string(),
+                    "    Write-Log ('Execution error: ' + $_.Exception.Message) 'Red'".to_string(),
                     "}".to_string(),
                 ]);
             }
@@ -686,7 +769,29 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
         ]);
     }
 
-    lines.push("Write-Log 'Finished ISOCraft First-Logon Post-Setup'".to_string());
+    lines.extend([
+        "Write-Log 'Finished ISOCraft First-Logon Post-Setup' 'Cyan'".to_string(),
+        "Write-Host ''".to_string(),
+        "if ($script:failedCount -eq 0) { Write-Host 'All tasks finished successfully.' -ForegroundColor Green } else { Write-Host ('Finished with ' + $script:failedCount + ' warning(s)/error(s).') -ForegroundColor Yellow }".to_string(),
+        "Write-Host ('Log file: ' + $logFile) -ForegroundColor Cyan".to_string(),
+        "try {".to_string(),
+        "    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {".to_string(),
+        "        $waitSec = if ($script:failedCount -gt 0) { 15 } else { 8 }".to_string(),
+        "        Write-Host ('Press [L] to open log folder, or any other key to close (auto-closing in ' + $waitSec + 's)...') -ForegroundColor Gray".to_string(),
+        "        $deadline = (Get-Date).AddSeconds($waitSec)".to_string(),
+        "        while ((Get-Date) -lt $deadline) {".to_string(),
+        "            if ([Console]::KeyAvailable) {".to_string(),
+        "                $key = [Console]::ReadKey($true)".to_string(),
+        "                if ($key.Key -eq [ConsoleKey]::L) {".to_string(),
+        "                    Start-Process -FilePath 'explorer.exe' -ArgumentList ('/select,\"' + $logFile + '\"')".to_string(),
+        "                }".to_string(),
+        "                break".to_string(),
+        "            }".to_string(),
+        "            Start-Sleep -Milliseconds 200".to_string(),
+        "        }".to_string(),
+        "    }".to_string(),
+        "} catch {}".to_string(),
+    ]);
 
     // Windows PowerShell 5.1 requires UTF-8 BOM + CRLF for non-ASCII characters
     Some(format!("\u{feff}{}\r\n", lines.join("\r\n")))
@@ -1367,11 +1472,24 @@ mod tests {
             before_cmd.contains(r#"msiexec.exe /i "%~dp0Payload\001_setup.msi" /qn /norestart"#)
         );
         assert!(before_cmd.contains(r#"rmdir /s /q "%~dp0Payload""#));
+        assert!(before_cmd.contains("Exit code: %errorlevel%"));
+
+        let first_cmd = generate_first_logon_cmd();
+        assert!(first_cmd.contains("title ISOCraft Post-Setup"));
 
         let first_ps1 = generate_first_logon_ps1(&plan).unwrap();
         assert!(first_ps1.starts_with('\u{feff}'));
         assert!(first_ps1.contains("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8"));
+        assert!(first_ps1.contains("$Host.UI.RawUI.WindowTitle = 'ISOCraft Post-Setup'"));
+        assert!(first_ps1.contains("Write-Host"));
+        assert!(first_ps1.contains("[1/2]"));
+        assert!(first_ps1.contains("[ConsoleKey]::L"));
+        assert!(first_ps1.contains("explorer.exe"));
+        assert!(first_ps1.contains("/select,"));
         assert!(first_ps1.contains("002_установщик.exe"));
+        assert!(first_ps1.contains("-Wait -PassThru"));
+        assert!(first_ps1.contains("Exit code:"));
+        assert!(!first_ps1.contains("Invoke-LoggedScript"));
         assert!(first_ps1.contains("winget install --id '7zip.7zip' --exact --silent"));
         assert!(first_ps1.contains("--source winget"));
         assert!(first_ps1.contains("--scope machine"));
@@ -1380,6 +1498,78 @@ mod tests {
         assert!(first_ps1.contains("Winget exit code:"));
         assert!(first_ps1.contains("Remove-Item -LiteralPath $payloadDir"));
         assert!(format_winget_command(&plan.items[2]).contains("--source winget"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn isolates_batch_scripts_and_logs_script_output_and_exit_codes() {
+        let dir = make_temp_dir("isocraft_ps_scripts");
+        let cmd_before = dir.join("prep (1).cmd");
+        let cmd_first = dir.join("tweak (1).cmd");
+        let ps1_first = dir.join("config.ps1");
+        fs::write(&cmd_before, b"@echo off\r\nexit 0\r\n").unwrap();
+        fs::write(&cmd_first, b"@echo off\r\necho ok\r\n").unwrap();
+        fs::write(&ps1_first, b"Write-Output 'hi'\r\n").unwrap();
+
+        let plan = PostSetupBuildPlan {
+            items: vec![
+                PostSetupItem {
+                    id: "1".into(),
+                    kind: PostSetupItemKind::Script,
+                    phase: PostSetupPhase::BeforeLogon,
+                    enabled: true,
+                    source_path: Some(cmd_before.to_string_lossy().to_string()),
+                    args: String::new(),
+                    winget_id: None,
+                    display_name: None,
+                    winget_source: WingetSource::Winget,
+                    winget_scope: WingetScope::Default,
+                },
+                PostSetupItem {
+                    id: "2".into(),
+                    kind: PostSetupItemKind::Script,
+                    phase: PostSetupPhase::FirstLogon,
+                    enabled: true,
+                    source_path: Some(cmd_first.to_string_lossy().to_string()),
+                    args: String::new(),
+                    winget_id: None,
+                    display_name: None,
+                    winget_source: WingetSource::Winget,
+                    winget_scope: WingetScope::Default,
+                },
+                PostSetupItem {
+                    id: "3".into(),
+                    kind: PostSetupItemKind::Script,
+                    phase: PostSetupPhase::FirstLogon,
+                    enabled: true,
+                    source_path: Some(ps1_first.to_string_lossy().to_string()),
+                    args: "-Quiet".into(),
+                    winget_id: None,
+                    display_name: None,
+                    winget_source: WingetSource::Winget,
+                    winget_scope: WingetScope::Default,
+                },
+            ],
+            first_logon_mode: FirstLogonMode::RunOnce,
+            cleanup_temp_files: true,
+            wait_for_network: true,
+        };
+
+        let before_cmd = generate_before_logon_cmd(&plan).unwrap();
+        assert!(!before_cmd.contains("call \"%~dp0Payload"));
+        assert!(before_cmd.contains(r#"cmd.exe /c ""%~dp0Payload\001_prep (1).cmd"" >>"#));
+        assert!(before_cmd.contains("Exit code: %errorlevel%"));
+
+        let first_ps1 = generate_first_logon_ps1(&plan).unwrap();
+        assert!(first_ps1.contains("function Invoke-LoggedScript"));
+        assert!(
+            first_ps1.contains("-RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr")
+        );
+        assert!(
+            first_ps1.contains("Invoke-LoggedScript 'cmd.exe' ('/c \"\"' + $itemPath + '\"\"')")
+        );
+        assert!(first_ps1.contains("Invoke-LoggedScript 'powershell.exe' ('-NoProfile -ExecutionPolicy Bypass -File \"' + $itemPath + '\" ' + '-Quiet')"));
 
         let _ = fs::remove_dir_all(&dir);
     }

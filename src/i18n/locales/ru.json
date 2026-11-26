@@ -475,6 +475,7 @@
       "cleanupPayloadLabel": "Удалять временные дистрибутивы после завершения",
       "waitForNetworkLabel": "Ожидать сеть и winget перед установкой (до 120 с)",
       "oemNotice": "Before Logon (SYSTEM) запускается через Windows\\Setup\\Scripts\\SetupComplete.cmd (Windows пропускает его на ПК с OEM-ключом в BIOS/UEFI). Задачи First Logon (User) и winget запускаются независимо и работают на любом оборудовании.",
+      "runOnceElevationNotice": "В режиме RunOnce скрипты и установщики First Logon запускаются с обычными правами пользователя (без UAC). Для системных изменений (HKLM, службы, системные папки) используйте фазу Before Logon (SYSTEM) или режим FirstLogonCommands (autounattend.xml).",
       "scanError": "Не удалось добавить элемент постустановки: {{error}}",
       "filterAll": "Все",
       "phaseBeforeLogon": "Before Logon (SYSTEM)",
