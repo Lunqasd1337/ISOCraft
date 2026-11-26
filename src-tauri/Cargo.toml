@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "isocraft"
-version = "0.5.0"
+version = "0.6.0"
 description = "Minimalist Windows 11 x64 Client Image Editor"
 authors = ["Lunqasd1337"]
 license = "MIT"
