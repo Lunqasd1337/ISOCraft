@@ -23,6 +23,11 @@ pub fn validate_autounattend(path: &Path) -> AutounattendValidation {
     validate_autounattend_with_bytes(path).0
 }
 
+pub fn validate_autounattend_bytes(bytes: &[u8]) -> AutounattendValidation {
+    let content = decode_text_bytes(bytes);
+    validate_autounattend_str(&content)
+}
+
 pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation, Option<Vec<u8>>) {
     if is_unc_or_device_path(path) {
         return (
@@ -55,7 +60,13 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
     };
 
     let content = decode_text_bytes(&bytes);
-    let mut reader = Reader::from_str(&content);
+    let validation = validate_autounattend_str(&content);
+    let out_bytes = if validation.valid { Some(bytes) } else { None };
+    (validation, out_bytes)
+}
+
+pub fn validate_autounattend_str(content: &str) -> AutounattendValidation {
+    let mut reader = Reader::from_str(content);
     reader.config_mut().trim_text(true);
 
     let mut root_element: Option<String> = None;
@@ -70,31 +81,25 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
                 let local = name.rsplit(':').next().unwrap_or(&name).to_string();
 
                 if completed_root {
-                    return (
-                        AutounattendValidation {
-                            valid: false,
-                            root_element,
-                            passes,
-                            error: Some(format!("Unexpected second root XML element <{local}>.")),
-                        },
-                        None,
-                    );
+                    return AutounattendValidation {
+                        valid: false,
+                        root_element,
+                        passes,
+                        error: Some(format!("Unexpected second root XML element <{local}>.")),
+                    };
                 }
 
                 if root_element.is_none() {
                     root_element = Some(local.clone());
                     if !local.eq_ignore_ascii_case("unattend") {
-                        return (
-                            AutounattendValidation {
-                                valid: false,
-                                root_element,
-                                passes,
-                                error: Some(format!(
-                                    "Expected root XML element <unattend>, found <{local}>."
-                                )),
-                            },
-                            None,
-                        );
+                        return AutounattendValidation {
+                            valid: false,
+                            root_element,
+                            passes,
+                            error: Some(format!(
+                                "Expected root XML element <unattend>, found <{local}>."
+                            )),
+                        };
                     }
                 }
 
@@ -102,15 +107,12 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
                     let attr = match attr_res {
                         Ok(a) => a,
                         Err(err) => {
-                            return (
-                                AutounattendValidation {
-                                    valid: false,
-                                    root_element,
-                                    passes,
-                                    error: Some(format!("Invalid XML attribute: {err}")),
-                                },
-                                None,
-                            );
+                            return AutounattendValidation {
+                                valid: false,
+                                root_element,
+                                passes,
+                                error: Some(format!("Invalid XML attribute: {err}")),
+                            };
                         }
                     };
                     if local.eq_ignore_ascii_case("settings")
@@ -129,31 +131,25 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
                 let local = name.rsplit(':').next().unwrap_or(&name).to_string();
 
                 if completed_root {
-                    return (
-                        AutounattendValidation {
-                            valid: false,
-                            root_element,
-                            passes,
-                            error: Some(format!("Unexpected second root XML element <{local}>.")),
-                        },
-                        None,
-                    );
+                    return AutounattendValidation {
+                        valid: false,
+                        root_element,
+                        passes,
+                        error: Some(format!("Unexpected second root XML element <{local}>.")),
+                    };
                 }
 
                 if root_element.is_none() {
                     root_element = Some(local.clone());
                     if !local.eq_ignore_ascii_case("unattend") {
-                        return (
-                            AutounattendValidation {
-                                valid: false,
-                                root_element,
-                                passes,
-                                error: Some(format!(
-                                    "Expected root XML element <unattend>, found <{local}>."
-                                )),
-                            },
-                            None,
-                        );
+                        return AutounattendValidation {
+                            valid: false,
+                            root_element,
+                            passes,
+                            error: Some(format!(
+                                "Expected root XML element <unattend>, found <{local}>."
+                            )),
+                        };
                     }
                 }
 
@@ -161,15 +157,12 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
                     let attr = match attr_res {
                         Ok(a) => a,
                         Err(err) => {
-                            return (
-                                AutounattendValidation {
-                                    valid: false,
-                                    root_element,
-                                    passes,
-                                    error: Some(format!("Invalid XML attribute: {err}")),
-                                },
-                                None,
-                            );
+                            return AutounattendValidation {
+                                valid: false,
+                                root_element,
+                                passes,
+                                error: Some(format!("Invalid XML attribute: {err}")),
+                            };
                         }
                     };
                     if local.eq_ignore_ascii_case("settings")
@@ -196,80 +189,62 @@ pub fn validate_autounattend_with_bytes(path: &Path) -> (AutounattendValidation,
                         }
                     }
                     Some(expected) => {
-                        return (
-                            AutounattendValidation {
-                                valid: false,
-                                root_element,
-                                passes,
-                                error: Some(format!(
-                                    "Mismatched closing tag </{local}>, expected </{expected}>."
-                                )),
-                            },
-                            None,
-                        );
+                        return AutounattendValidation {
+                            valid: false,
+                            root_element,
+                            passes,
+                            error: Some(format!(
+                                "Mismatched closing tag </{local}>, expected </{expected}>."
+                            )),
+                        };
                     }
                     None => {
-                        return (
-                            AutounattendValidation {
-                                valid: false,
-                                root_element,
-                                passes,
-                                error: Some(format!("Unexpected closing tag </{local}>.")),
-                            },
-                            None,
-                        );
+                        return AutounattendValidation {
+                            valid: false,
+                            root_element,
+                            passes,
+                            error: Some(format!("Unexpected closing tag </{local}>.")),
+                        };
                     }
                 }
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                return (
-                    AutounattendValidation {
-                        valid: false,
-                        root_element,
-                        passes,
-                        error: Some(format!("Invalid XML syntax: {e}")),
-                    },
-                    None,
-                );
+                return AutounattendValidation {
+                    valid: false,
+                    root_element,
+                    passes,
+                    error: Some(format!("Invalid XML syntax: {e}")),
+                };
             }
             _ => {}
         }
     }
 
     if !open_tags.is_empty() {
-        return (
-            AutounattendValidation {
-                valid: false,
-                root_element,
-                passes,
-                error: Some(format!("Unclosed XML element(s): {}", open_tags.join(", "))),
-            },
-            None,
-        );
+        return AutounattendValidation {
+            valid: false,
+            root_element,
+            passes,
+            error: Some(format!("Unclosed XML element(s): {}", open_tags.join(", "))),
+        };
     }
 
     if root_element.is_none() {
-        return (
-            AutounattendValidation {
-                valid: false,
-                root_element: None,
-                passes,
-                error: Some("XML file contains no root element.".to_string()),
-            },
-            None,
-        );
+        return AutounattendValidation {
+            valid: false,
+            root_element: None,
+            passes,
+            error: Some("XML file contains no root element.".to_string()),
+        };
     }
 
-    (
-        AutounattendValidation {
-            valid: true,
-            root_element,
-            passes,
-            error: None,
-        },
-        Some(bytes),
-    )
+    AutounattendValidation {
+        valid: true,
+        root_element,
+        passes,
+        error: None,
+    }
 }
 
 pub fn write_generic_ei_cfg(iso_root: &Path) -> Result<(), String> {
@@ -304,6 +279,7 @@ pub struct IsoBuildOptions<'a> {
     pub volume_label: &'a str,
     pub uefi_no_prompt: bool,
     pub autounattend_path: Option<&'a Path>,
+    pub autounattend_xml_override: Option<&'a [u8]>,
     pub add_generic_ei_cfg: bool,
     pub oscdimg_path: Option<&'a Path>,
     pub xorriso_path: Option<&'a Path>,
@@ -317,7 +293,22 @@ pub async fn build_bootable_iso<F>(
 where
     F: FnMut(&str) + Send,
 {
-    if let Some(autounattend) = opts.autounattend_path {
+    if let Some(xml_bytes) = opts.autounattend_xml_override {
+        let validation = validate_autounattend_bytes(xml_bytes);
+        if !validation.valid {
+            return Err(format!(
+                "Invalid autounattend.xml: {}",
+                validation
+                    .error
+                    .unwrap_or_else(|| "unknown XML error".to_string())
+            ));
+        }
+        let dest = opts.iso_root.join("autounattend.xml");
+        tokio::fs::write(&dest, xml_bytes)
+            .await
+            .map_err(|e| format!("Failed writing autounattend.xml into ISO root: {e}"))?;
+        on_log(&format!("Written autounattend.xml to '{}'", dest.display()));
+    } else if let Some(autounattend) = opts.autounattend_path {
         let (validation, bytes_opt) = validate_autounattend_with_bytes(autounattend);
         if !validation.valid {
             return Err(format!(

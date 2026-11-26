@@ -3,12 +3,16 @@ use crate::state::{
 };
 use isocraft_core::apps::{DependencyScanResult, scan_appx_dependencies as core_scan_deps};
 use isocraft_core::dism::{ImageCatalog, load_image_catalog as core_load_catalog};
-use isocraft_core::drivers::{DriverScanResult, scan_driver_path as core_scan_driver_path};
+use isocraft_core::drivers::{
+    DriverScanResult, HostDriverExportRequest, HostDriverExportResult, InstalledDriverInfo,
+    export_host_drivers as core_export_host_drivers, list_host_drivers as core_list_host_drivers,
+    scan_driver_path as core_scan_driver_path,
+};
 use isocraft_core::env::{
     EnvironmentStatus, WorkspaceStorageStats, check_environment_status,
     clear_workspace_storage as core_clear_workspace_storage, compute_workspace_storage_stats,
-    find_bundled_or_path, find_curl, find_dism, find_explorer, is_trusted_oscdimg_path,
-    strip_windows_verbatim_prefix,
+    find_bundled_or_path, find_curl, find_dism, find_explorer, find_pnputil,
+    is_trusted_oscdimg_path, strip_windows_verbatim_prefix,
 };
 use isocraft_core::files::{FileScanResult, scan_custom_file_path as core_scan_custom_file_path};
 use isocraft_core::image::{
@@ -18,6 +22,11 @@ use isocraft_core::iso::{
     AutounattendValidation, validate_autounattend as core_validate_autounattend,
 };
 use isocraft_core::logger::{LogEntry, SessionLogger};
+use isocraft_core::post_setup::{
+    PostSetupBuildPlan, PostSetupFileScanResult, PostSetupPreview,
+    preview_post_setup_scripts as core_preview_post_setup,
+    scan_post_setup_file as core_scan_post_setup_file,
+};
 use isocraft_core::preset::{
     PresetImportResult, StudioPreset, export_preset_to_file, import_preset_from_file,
 };
@@ -455,10 +464,172 @@ pub(crate) async fn scan_driver_folder(path: String) -> Result<DriverScanResult,
 }
 
 #[tauri::command]
+pub(crate) async fn list_host_drivers(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<InstalledDriverInfo>, String> {
+    let Some(_busy) = state
+        .process_guard
+        .try_enter_busy_for(OperationKind::DriverExport)
+    else {
+        return Err("Another image operation is currently running.".to_string());
+    };
+
+    log_and_emit(
+        &state,
+        &app,
+        "info",
+        "Querying third-party drivers installed on this PC...",
+    );
+    let res = core_list_host_drivers(Some(&state.process_guard)).await;
+    drop(_busy);
+    match &res {
+        Ok(items) => log_and_emit(
+            &state,
+            &app,
+            "info",
+            format!("Found {} third-party driver(s) on this PC.", items.len()),
+        ),
+        Err(e) => log_and_emit(
+            &state,
+            &app,
+            "error",
+            format!("Failed querying host drivers: {e}"),
+        ),
+    }
+    res
+}
+
+#[tauri::command]
+pub(crate) async fn export_host_drivers(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: HostDriverExportRequest,
+) -> Result<HostDriverExportResult, String> {
+    let Some(_busy) = state
+        .process_guard
+        .try_enter_busy_for(OperationKind::DriverExport)
+    else {
+        return Err("Another image operation is currently running.".to_string());
+    };
+
+    let dism_path = find_dism()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "dism.exe not found.".to_string())?;
+    let pnputil_path = find_pnputil()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "pnputil.exe not found in Windows directory.".to_string())?;
+
+    let workspace_dir = state
+        .settings
+        .lock()
+        .map_err(|_| "Settings lock poisoned".to_string())?
+        .workspace_dir
+        .clone();
+    let session_dir = PathBuf::from(&workspace_dir).join("session_current");
+
+    let host_drivers = core_list_host_drivers(Some(&state.process_guard)).await?;
+    let res = core_export_host_drivers(
+        &dism_path,
+        &pnputil_path,
+        &request,
+        &host_drivers,
+        Some(&session_dir),
+        Some(&state.process_guard),
+        |msg| log_and_emit(&state, &app, "info", msg),
+        |progress| {
+            let _ = app.emit("driver-export-progress", &progress);
+        },
+    )
+    .await;
+    drop(_busy);
+
+    match &res {
+        Ok(out) => log_and_emit(
+            &state,
+            &app,
+            "info",
+            format!(
+                "Host driver export finished: exported={}, failed={}, destination={}",
+                out.exported_count,
+                out.failed.len(),
+                out.destination_dir
+            ),
+        ),
+        Err(e) => {
+            let level = if e.to_ascii_lowercase().contains("cancelled") {
+                "warn"
+            } else {
+                "error"
+            };
+            log_and_emit(
+                &state,
+                &app,
+                level,
+                format!("Host driver export failed: {e}"),
+            );
+        }
+    }
+    res
+}
+
+#[tauri::command]
+pub(crate) async fn cancel_driver_export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if state
+        .process_guard
+        .cancel_operation_kind(OperationKind::DriverExport)
+    {
+        log_and_emit(
+            &state,
+            &app,
+            "warn",
+            "Host driver export cancellation requested...",
+        );
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            state.process_guard.wait_until_idle(),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) async fn scan_custom_file_path(path: String) -> Result<FileScanResult, String> {
     tokio::task::spawn_blocking(move || core_scan_custom_file_path(&PathBuf::from(path)))
         .await
         .map_err(|e| format!("File scan task failed: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn scan_post_setup_file(path: String) -> Result<PostSetupFileScanResult, String> {
+    tokio::task::spawn_blocking(move || core_scan_post_setup_file(&PathBuf::from(path)))
+        .await
+        .map_err(|e| format!("Post-Setup file scan task failed: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn preview_post_setup(
+    plan: PostSetupBuildPlan,
+    autounattend_path: Option<String>,
+    target: Option<String>,
+) -> Result<PostSetupPreview, String> {
+    tokio::task::spawn_blocking(move || {
+        let xml_path = autounattend_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from);
+        let tgt = target.unwrap_or_else(|| "iso".to_string());
+        core_preview_post_setup(&plan, xml_path.as_deref(), &tgt)
+    })
+    .await
+    .map_err(|e| format!("Post-Setup preview task failed: {e}"))?
 }
 
 #[tauri::command]

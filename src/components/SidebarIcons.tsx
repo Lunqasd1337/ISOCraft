@@ -232,6 +232,35 @@ export function SidebarCategoryIcon({
         </svg>
       );
 
+    case "postSetup":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.65}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={svgClass}
+        >
+          <g key={animKey}>
+            <rect width="18" height="16" x="3" y="4" rx="2.5" />
+            <polyline
+              points="7 10 10.5 13 7 16"
+              className={active ? "animate-sidebar-terminal-chevron" : undefined}
+            />
+            <line
+              x1="12"
+              x2="17"
+              y1="16"
+              y2="16"
+              className={active ? "animate-sidebar-terminal-cursor" : undefined}
+            />
+          </g>
+        </svg>
+      );
+
     case "build":
       return (
         <svg

@@ -24,6 +24,7 @@ import { UpdatesScreen } from "./components/screens/UpdatesScreen";
 import { DriversScreen } from "./components/screens/DriversScreen";
 import { RegistryScreen } from "./components/screens/RegistryScreen";
 import { FilesScreen } from "./components/screens/FilesScreen";
+import { PostSetupScreen } from "./components/screens/PostSetupScreen";
 import { BuildScreen } from "./components/screens/BuildScreen";
 import { usePresetWorkflow } from "./hooks/usePresetWorkflow";
 import { destroyLogStore, initLogStore } from "./hooks/useLogStore";
@@ -54,6 +55,7 @@ import type {
   ImageCatalog,
   ImageInspectionResult,
   OutputOptions,
+  PostSetupQueueState,
   RegistryQueueState,
   SectionId,
   UpdatesQueueState,
@@ -86,6 +88,7 @@ const EMPTY_UPDATES_QUEUE: UpdatesQueueState = {
 
 const EMPTY_DRIVERS_QUEUE: DriversQueueState = {
   items: [],
+  removePublishedNames: [],
 };
 
 const EMPTY_REGISTRY_QUEUE: RegistryQueueState = {
@@ -94,6 +97,13 @@ const EMPTY_REGISTRY_QUEUE: RegistryQueueState = {
 
 const EMPTY_FILES_QUEUE: FilesQueueState = {
   items: [],
+};
+
+const EMPTY_POST_SETUP_QUEUE: PostSetupQueueState = {
+  items: [],
+  firstLogonMode: "runOnce",
+  cleanupTempFiles: true,
+  waitForNetwork: true,
 };
 
 let themeTransitionTimer: number | null = null;
@@ -159,6 +169,8 @@ export function App() {
     useState<RegistryQueueState>(EMPTY_REGISTRY_QUEUE);
   const [filesQueue, setFilesQueue] =
     useState<FilesQueueState>(EMPTY_FILES_QUEUE);
+  const [postSetupQueue, setPostSetupQueue] =
+    useState<PostSetupQueueState>(EMPTY_POST_SETUP_QUEUE);
 
   const [output, setOutput] = useState<OutputOptions>({
     target: "iso",
@@ -213,6 +225,8 @@ export function App() {
     setRegistryQueue,
     filesQueue,
     setFilesQueue,
+    postSetupQueue,
+    setPostSetupQueue,
     output,
     setOutput,
   });
@@ -439,6 +453,7 @@ export function App() {
     setDriversQueue(EMPTY_DRIVERS_QUEUE);
     setRegistryQueue(EMPTY_REGISTRY_QUEUE);
     setFilesQueue(EMPTY_FILES_QUEUE);
+    setPostSetupQueue(EMPTY_POST_SETUP_QUEUE);
     setOutput({
       target: "iso",
       installFormat: "wim",
@@ -484,6 +499,11 @@ export function App() {
     setSelectedIndex(idx);
     setAppsQueue(EMPTY_APPS_QUEUE);
     setFeaturesQueue(EMPTY_FEATURES_QUEUE);
+    setDriversQueue((prev) =>
+      prev.removePublishedNames.length > 0
+        ? { ...prev, removePublishedNames: [] }
+        : prev
+    );
     setBuildResultMessage(null);
     setBuildProgress(null);
     setBuildStartedAt(null);
@@ -509,7 +529,8 @@ export function App() {
       featuresQueue.enableFeatures.length +
       featuresQueue.disableFeatures.length +
       featuresQueue.addCapabilities.length +
-      featuresQueue.removeCapabilities.length;
+      featuresQueue.removeCapabilities.length +
+      driversQueue.removePublishedNames.length;
     if (editionQueuedCount > 0) {
       setPendingResetAction({ kind: "edition", index: idx });
       return;
@@ -742,6 +763,7 @@ export function App() {
                     ? d.injectToBootWim
                     : false,
               })),
+              removePublishedNames: driversQueue.removePublishedNames,
             },
             registry: {
               regFiles: registryQueue.regFiles.map((r) => ({
@@ -759,6 +781,11 @@ export function App() {
                   destinationPath: f.destinationPath,
                   conflictPolicy: f.conflictPolicy,
                 })),
+            },
+            postSetup: {
+              ...postSetupQueue,
+              firstLogonMode:
+                output.target === "iso" ? postSetupQueue.firstLogonMode : "runOnce",
             },
           },
         });
@@ -810,8 +837,14 @@ export function App() {
       setDriversQueue((prev) =>
         prev.items.some((d) => d.injectToBootWim)
           ? {
+              ...prev,
               items: prev.items.map((d) => ({ ...d, injectToBootWim: false })),
             }
+          : prev
+      );
+      setPostSetupQueue((prev) =>
+        prev.firstLogonMode === "autounattend"
+          ? { ...prev, firstLogonMode: "runOnce" }
           : prev
       );
     }
@@ -836,9 +869,11 @@ export function App() {
     if (updatesQueue.items.length > 0) {
       badges.updates = String(updatesQueue.items.length);
     }
-    if (driversQueue.items.length > 0) {
-      badges.drivers = String(driversQueue.items.length);
-    }
+    const drvRem = driversQueue.removePublishedNames.length;
+    const drvAdd = driversQueue.items.length;
+    if (drvRem > 0 && drvAdd > 0) badges.drivers = `-${drvRem} / +${drvAdd}`;
+    else if (drvRem > 0) badges.drivers = `-${drvRem}`;
+    else if (drvAdd > 0) badges.drivers = `+${drvAdd}`;
     const enabledRegsCount = registryQueue.regFiles.filter((r) => r.enabled).length;
     if (enabledRegsCount > 0) {
       badges.registry = String(enabledRegsCount);
@@ -851,8 +886,13 @@ export function App() {
       badges.files = String(activeFilesCount);
     }
 
+    const activePostSetupCount = postSetupQueue.items.filter((i) => i.enabled).length;
+    if (activePostSetupCount > 0) {
+      badges.postSetup = String(activePostSetupCount);
+    }
+
     return badges;
-  }, [appsQueue, driversQueue, featuresQueue, filesQueue, output.target, registryQueue, updatesQueue]);
+  }, [appsQueue, driversQueue, featuresQueue, filesQueue, output.target, postSetupQueue, registryQueue, updatesQueue]);
 
   const totalQueuedCount =
     appsQueue.removeFamilies.length +
@@ -864,9 +904,11 @@ export function App() {
     updatesQueue.items.length +
     (updatesQueue.runComponentCleanup ? 1 : 0) +
     driversQueue.items.length +
+    driversQueue.removePublishedNames.length +
     registryQueue.regFiles.filter((r) => r.enabled).length +
     filesQueue.items.filter((f) => f.target !== "isoRoot" || output.target === "iso")
-      .length;
+      .length +
+    postSetupQueue.items.filter((i) => i.enabled).length;
 
   const sidebarBadgesWithBuild = useMemo<Partial<Record<SectionId, string>>>(() => {
     if (totalQueuedCount <= 0) return sidebarBadges;
@@ -888,7 +930,8 @@ export function App() {
     featuresQueue.enableFeatures.length +
     featuresQueue.disableFeatures.length +
     featuresQueue.addCapabilities.length +
-    featuresQueue.removeCapabilities.length;
+    featuresQueue.removeCapabilities.length +
+    driversQueue.removePublishedNames.length;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-canvas text-text-primary overflow-hidden border border-border-subtle">
@@ -1024,6 +1067,9 @@ export function App() {
                 canInjectBootWim={Boolean(
                   inspection?.hasBootWim && output.target === "iso"
                 )}
+                catalog={catalog}
+                catalogLoading={catalogLoading}
+                workspaceDir={settings.workspaceDir}
                 isBuilding={isBuilding || recovering || cancellingBuild}
                 driversQueue={driversQueue}
                 onChangeDriversQueue={setDriversQueue}
@@ -1052,6 +1098,21 @@ export function App() {
                 onChangeFilesQueue={setFilesQueue}
               />
             )}
+            {activeSection === "postSetup" && (
+              <PostSetupScreen
+                hasValidImage={Boolean(
+                  inspection?.isValidWin11ClientX64 && selectedIndex !== null
+                )}
+                canTargetIso={Boolean(
+                  inspection?.sourceKind === "iso" && output.target === "iso"
+                )}
+                autounattendPath={output.autounattendPath}
+                outputTarget={output.target}
+                isBuilding={isBuilding || recovering || cancellingBuild}
+                postSetupQueue={postSetupQueue}
+                onChangePostSetupQueue={setPostSetupQueue}
+              />
+            )}
             {activeSection === "build" && (
               <BuildScreen
                 inspection={inspection}
@@ -1062,6 +1123,7 @@ export function App() {
                 driversQueue={driversQueue}
                 registryQueue={registryQueue}
                 filesQueue={filesQueue}
+                postSetupQueue={postSetupQueue}
                 onChangeUpdatesQueue={setUpdatesQueue}
                 output={output}
                 onChangeOutput={handleOutputChange}

@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "drivers", labelKey: "nav.drivers" },
   { id: "registry", labelKey: "nav.registry" },
   { id: "files", labelKey: "nav.files" },
+  { id: "postSetup", labelKey: "nav.postSetup" },
   { id: "build", labelKey: "nav.build", dividerAbove: true },
 ];
 

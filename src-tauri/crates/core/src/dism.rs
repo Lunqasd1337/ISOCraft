@@ -1,4 +1,5 @@
 use crate::apps::{ProvisionedAppxInfo, extract_package_family_name, protected_appx_reason};
+use crate::drivers::{InstalledDriverInfo, RawPsDriver, map_raw_drivers};
 use crate::features::{WindowsCapabilityInfo, WindowsFeatureInfo};
 use crate::fs_utils::{
     is_symlink_or_reparse, is_unc_or_device_path, read_file_bounded, write_file_atomic,
@@ -22,6 +23,8 @@ pub struct ImageCatalog {
     pub appx_packages: Vec<ProvisionedAppxInfo>,
     pub features: Vec<WindowsFeatureInfo>,
     pub capabilities: Vec<WindowsCapabilityInfo>,
+    #[serde(default)]
+    pub drivers: Vec<InstalledDriverInfo>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +71,7 @@ fn catalog_cache_path(workspace_dir: &Path, source_path: &Path, index: u32) -> P
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let key = format!("{norm_path}|{len}|{mtime}|{index}");
+    let key = format!("{norm_path}|{len}|{mtime}|{index}|v2");
     workspace_dir
         .join("cache")
         .join(format!("catalog_{}.json", fnv1a_64(&key)))
@@ -83,6 +86,8 @@ struct RawPsCatalogBundle {
     features: Vec<RawPsFeature>,
     #[serde(default)]
     capabilities: Vec<RawPsCapability>,
+    #[serde(default)]
+    drivers: Vec<RawPsDriver>,
 }
 
 fn map_raw_appx(raw: Vec<RawPsAppx>) -> Vec<ProvisionedAppxInfo> {
@@ -160,12 +165,13 @@ pub type CatalogBundleTuple = (
     Vec<ProvisionedAppxInfo>,
     Vec<WindowsFeatureInfo>,
     Vec<WindowsCapabilityInfo>,
+    Vec<InstalledDriverInfo>,
 );
 
 pub fn parse_ps_catalog_bundle_json(json_str: &str) -> Result<CatalogBundleTuple, String> {
     let trimmed = json_str.trim();
     if trimmed.is_empty() || trimmed == "null" {
-        return Ok((Vec::new(), Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
     }
     let raw: RawPsCatalogBundle = serde_json::from_str(trimmed)
         .map_err(|e| format!("Failed parsing DISM Catalog Bundle JSON: {e}"))?;
@@ -173,6 +179,7 @@ pub fn parse_ps_catalog_bundle_json(json_str: &str) -> Result<CatalogBundleTuple
         map_raw_appx(raw.appx),
         map_raw_features(raw.features),
         map_raw_capabilities(raw.capabilities),
+        map_raw_drivers(raw.drivers),
     ))
 }
 
@@ -335,20 +342,21 @@ pub async fn query_mounted_capabilities_list_tracked(
 pub async fn query_mounted_catalog_bundle_tracked(
     mount_dir: &Path,
     guard: Option<&ProcessGuard>,
-) -> Result<
-    (
-        Vec<ProvisionedAppxInfo>,
-        Vec<WindowsFeatureInfo>,
-        Vec<WindowsCapabilityInfo>,
-    ),
-    String,
-> {
+) -> Result<CatalogBundleTuple, String> {
     let script = "Import-Module Dism -ErrorAction Stop; \
          $p = $env:ISOCRAFT_TARGET_PATH; \
          $appx = @(Get-AppxProvisionedPackage -Path $p | Select-Object DisplayName, PackageName, @{N='Version';E={$_.Version.ToString()}}, PublisherId); \
          $feats = @(Get-WindowsOptionalFeature -Path $p | Select-Object FeatureName, @{N='State';E={$_.State.ToString()}}); \
          $caps = @(Get-WindowsCapability -Path $p | Select-Object Name, @{N='State';E={$_.State.ToString()}}); \
-         $bundle = [PSCustomObject]@{ Appx = $appx; Features = $feats; Capabilities = $caps }; \
+         $drvs = @(Get-WindowsDriver -Path $p | Select-Object \
+           @{N='Driver';E={if($_.Driver){$_.Driver.ToString()}else{''}}}, \
+           @{N='OriginalFileName';E={if($_.OriginalFileName){$_.OriginalFileName.ToString()}else{''}}}, \
+           @{N='ClassName';E={if($_.ClassName){$_.ClassName.ToString()}else{''}}}, \
+           @{N='ProviderName';E={if($_.ProviderName){$_.ProviderName.ToString()}else{''}}}, \
+           @{N='Date';E={if($_.Date){$_.Date.ToString('yyyy-MM-dd')}else{''}}}, \
+           @{N='Version';E={if($_.Version){$_.Version.ToString()}else{''}}}, \
+           @{N='BootCritical';E={[bool]$_.BootCritical}}); \
+         $bundle = [PSCustomObject]@{ Appx = $appx; Features = $feats; Capabilities = $caps; Drivers = $drvs }; \
          ConvertTo-Json -InputObject $bundle -Depth 5 -Compress";
     let json = run_powershell_script_with_env(
         script,
@@ -420,10 +428,11 @@ where
 
         if let Some(cached) = cached_opt {
             on_log(&format!(
-                "Loaded edition catalog from cache ({} Appx, {} Features, {} Capabilities).",
+                "Loaded edition catalog from cache ({} Appx, {} Features, {} Capabilities, {} Drivers).",
                 cached.appx_packages.len(),
                 cached.features.len(),
-                cached.capabilities.len()
+                cached.capabilities.len(),
+                cached.drivers.len()
             ));
             return Ok(cached);
         }
@@ -530,17 +539,22 @@ where
         )
         .await?;
 
-        on_log("Querying Appx, Optional Features, and Capabilities via PowerShell Dism...");
+        on_log(
+            "Querying Appx, Optional Features, Capabilities, and Drivers via PowerShell Dism...",
+        );
         let query_res = query_mounted_catalog_bundle_tracked(&ro_mount_dir, guard)
             .await
-            .map(|(appx_packages, features, capabilities)| ImageCatalog {
-                source_path: source_path.to_string_lossy().to_string(),
-                edition_index: index,
-                from_cache: false,
-                appx_packages,
-                features,
-                capabilities,
-            });
+            .map(
+                |(appx_packages, features, capabilities, drivers)| ImageCatalog {
+                    source_path: source_path.to_string_lossy().to_string(),
+                    edition_index: index,
+                    from_cache: false,
+                    appx_packages,
+                    features,
+                    capabilities,
+                    drivers,
+                },
+            );
 
         let unmount_res = unmount_wim(dism_path, &ro_mount_dir, false, workspace_dir, None, |l| {
             on_log(l)
@@ -569,10 +583,11 @@ where
         .await;
 
         on_log(&format!(
-            "Catalog cached ({} Appx, {} Features, {} Capabilities).",
+            "Catalog cached ({} Appx, {} Features, {} Capabilities, {} Drivers).",
             catalog.appx_packages.len(),
             catalog.features.len(),
-            catalog.capabilities.len()
+            catalog.capabilities.len(),
+            catalog.drivers.len()
         ));
 
         Ok(catalog)
@@ -652,14 +667,21 @@ mod tests {
           ],
           "Capabilities": [
             {"Name":"OpenSSH.Client~~~~0.0.1.0","State":"Installed"}
+          ],
+          "Drivers": [
+            {"Driver":"oem3.inf","OriginalFileName":"nvme.inf","ClassName":"SCSIAdapter","ProviderName":"Intel","Date":"2025-01-10","Version":"1.0.0.1","BootCritical":true}
           ]
         }"#;
-        let (appx, feats, caps) = parse_ps_catalog_bundle_json(bundle).unwrap();
+        let (appx, feats, caps, drvs) = parse_ps_catalog_bundle_json(bundle).unwrap();
         assert_eq!(appx.len(), 1);
         assert!(appx[0].is_protected);
         assert_eq!(feats.len(), 1);
         assert_eq!(feats[0].name, "NetFx3");
         assert_eq!(caps.len(), 1);
         assert_eq!(caps[0].name, "OpenSSH.Client~~~~0.0.1.0");
+        assert_eq!(drvs.len(), 1);
+        assert_eq!(drvs[0].published_name, "oem3.inf");
+        assert_eq!(drvs[0].category, "storage");
+        assert!(drvs[0].boot_critical);
     }
 }

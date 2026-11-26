@@ -28,6 +28,7 @@
   "drivers": {},
   "registry": {},
   "files": {},
+  "postSetup": {},
   "output": {}
 }
 ```
@@ -88,7 +89,7 @@
 
 ### 3.5. `drivers` (`PresetDrivers`)
 
-Элементы массива `drivers.items` (`PresetDriverItem`):
+Элементы массива `drivers.items` (`PresetDriverItem`) и список удаляемых OEM-драйверов `drivers.removePublishedNames`:
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
@@ -98,6 +99,7 @@
 | `forceUnsigned` | `boolean` | `false` | Флаг `/ForceUnsigned`. |
 | `injectToInstallWim` | `boolean` | `true` | Инъекция в целевой `install.wim`. |
 | `injectToBootWim` | `boolean` | `false` | Инъекция в `sources\boot.wim` (**Index 2 — Windows Setup**, только при `target == "iso"`). |
+| `removePublishedNames` | `string[]` | `[]` | Список публикуемых имён OEM-драйверов (`oem<N>.inf`) для удаления из `install.wim` перед инъекцией новых. |
 
 ### 3.6. `registry` (`RegistryBuildPlan`)
 
@@ -117,7 +119,18 @@
 | `destinationPath` | `string` | `—` (обязательно) | Относительный путь назначения (`""` — корень контейнера). |
 | `conflictPolicy` | `"overwrite" \| "skip"` | `"overwrite"` | Политика при совпадении пути существующего файла. |
 
-### 3.8. `output` (`PresetOutput`)
+### 3.8. `postSetup` (`PostSetupBuildPlan`, опциональный раздел)
+
+| Поле | Тип | По умолчанию | Описание |
+| :--- | :--- | :--- | :--- |
+| `items` | `PostSetupItem[]` | `[]` | Упорядоченный список задач постустановки (`installer`, `script`, `winget`). |
+| `firstLogonMode` | `"runOnce" \| "autounattend"` | `"runOnce"` | Способ запуска фазы `firstLogon` (`RunOnce` в `NTUSER.DAT` или `FirstLogonCommands` в `autounattend.xml`). |
+| `cleanupTempFiles` | `boolean` | `true` | Удалять временные дистрибутивы `Payload` после выполнения. |
+| `waitForNetwork` | `boolean` | `true` | Ожидать сеть и доступность `winget` перед установкой пакетов. |
+
+Каждый элемент `PostSetupItem`: `id`, `kind` (`"installer" \| "script" \| "winget"`), `phase` (`"beforeLogon" \| "firstLogon"`), `enabled` (`true`), `sourcePath`, `args`, `wingetId`, `displayName`, `wingetSource` (`"winget" \| "msstore"`), `wingetScope` (`"default" \| "machine" \| "user"`).
+
+### 3.9. `output` (`PresetOutput`)
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
@@ -144,6 +157,7 @@
 | `driverItem` | `isDirectory` или `!ends_with(".inf")` | `drivers.items[]` |
 | `regFile` | `false` | `registry.regFiles[]` |
 | `customFile` | `item.isDirectory` | `files.items[].sourcePath` |
+| `postSetupFile` | `false` | `postSetup.items[].sourcePath` (`installer` / `script`) |
 | `autounattendXml` | `false` | `output.autounattendPath` |
 
 На экране **«Сборка и пресеты»** карточка `MissingPresetPathsCard` подсвечивает каждый отсутствующий элемент с кнопками **«Указать путь...»** (перепривязка через нативный диалог с повторным сканированием) и **«Удалить»**; список автоматически очищается по мере исправления или удаления соответствующих элементов в очередях.
@@ -228,7 +242,8 @@
         "injectToInstallWim": true,
         "injectToBootWim": true
       }
-    ]
+    ],
+    "removePublishedNames": ["oem5.inf"]
   },
   "registry": {
     "regFiles": [
@@ -248,6 +263,25 @@
         "conflictPolicy": "overwrite"
       }
     ]
+  },
+  "postSetup": {
+    "items": [
+      {
+        "id": "wg-7zip",
+        "kind": "winget",
+        "phase": "firstLogon",
+        "enabled": true,
+        "sourcePath": null,
+        "args": "",
+        "wingetId": "7zip.7zip",
+        "displayName": "7-Zip",
+        "wingetSource": "winget",
+        "wingetScope": "machine"
+      }
+    ],
+    "firstLogonMode": "runOnce",
+    "cleanupTempFiles": true,
+    "waitForNetwork": true
   },
   "output": {
     "target": "iso",
