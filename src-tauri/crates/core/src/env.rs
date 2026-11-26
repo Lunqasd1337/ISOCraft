@@ -216,6 +216,22 @@ pub fn find_curl() -> ToolStatus {
     )
 }
 
+/// Locates the system tar.exe (bsdtar) utility used for extracting Winget source2.msix.
+pub fn find_tar() -> ToolStatus {
+    find_system_binary(
+        windows_root_dir().join("System32").join("tar.exe"),
+        "tar.exe",
+    )
+}
+
+/// Locates the built-in Windows SQLite library (`winsqlite3.dll`).
+pub fn find_winsqlite3() -> ToolStatus {
+    find_system_binary(
+        windows_root_dir().join("System32").join("winsqlite3.dll"),
+        "winsqlite3.dll",
+    )
+}
+
 /// Locates the system Windows PowerShell 5.1 executable in `%SystemRoot%\System32`.
 pub fn find_powershell() -> ToolStatus {
     find_system_binary(

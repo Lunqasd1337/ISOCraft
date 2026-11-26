@@ -28,6 +28,7 @@ pub fn run() {
         settings: Mutex::new(initial_settings),
         logger: SessionLogger::new(),
         process_guard: ProcessGuard::new(),
+        winget_index_lock: std::sync::Arc::new(tokio::sync::RwLock::new(())),
     };
 
     tauri::Builder::default()
@@ -124,6 +125,7 @@ pub fn run() {
             commands::scan_custom_file_path,
             commands::scan_post_setup_file,
             commands::preview_post_setup,
+            commands::search_winget_packages,
             commands::preview_reg_file,
             commands::validate_autounattend,
             commands::export_preset,

@@ -593,6 +593,10 @@ html.theme-transitioning *::after {
   background: transparent;
 }
 
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
   background: rgba(128, 128, 128, 0.3);
   border-radius: 9999px;

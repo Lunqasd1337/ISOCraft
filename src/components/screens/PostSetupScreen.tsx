@@ -71,7 +71,7 @@ function formatWingetPreview(item: PostSetupItem): string {
     id,
     "--exact --silent --accept-package-agreements --accept-source-agreements",
   ];
-  if (item.wingetSource === "msstore") parts.push("--source msstore");
+  parts.push(`--source ${item.wingetSource}`);
   if (item.wingetScope !== "default") parts.push(`--scope ${item.wingetScope}`);
   if (item.args.trim()) parts.push(item.args.trim());
   return parts.join(" ");

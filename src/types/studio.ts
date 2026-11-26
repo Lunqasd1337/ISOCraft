@@ -352,6 +352,22 @@ export type PostSetupItemKind = "installer" | "script" | "winget";
 export type WingetScope = "default" | "machine" | "user";
 export type WingetSource = "winget" | "msstore";
 
+export interface WingetSearchEntry {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string | null;
+  moniker: string | null;
+  source: WingetSource;
+}
+
+export interface WingetSearchResponse {
+  items: WingetSearchEntry[];
+  source: WingetSource;
+  indexUpdatedAt: string | null;
+  fromCache: boolean;
+}
+
 export interface PostSetupItem {
   id: string;
   kind: PostSetupItemKind;

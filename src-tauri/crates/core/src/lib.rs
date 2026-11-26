@@ -17,3 +17,4 @@ pub mod settings;
 pub mod update_catalog;
 pub mod updates;
 pub mod wim;
+pub mod winget_catalog;
