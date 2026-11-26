@@ -1,6 +1,6 @@
 use crate::fs_utils::read_file_bounded;
 use crate::image::decode_text_bytes;
-use crate::reg_parser::{OfflineHive, ParsedOpKind, ParsedRegFile, parse_reg_content};
+use crate::reg_parser::{OfflineHive, ParsedOpKind, ParsedRegFile, ParsedRegOp, parse_reg_content};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -608,6 +608,149 @@ mod win32_impl {
         Ok(())
     }
 
+    fn apply_parsed_ops_in_session<F, C>(
+        session: &LoadedHiveSession,
+        control_set_name: &str,
+        operations: &[ParsedRegOp],
+        is_cancelled: &C,
+        on_log: &mut F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&str),
+        C: Fn() -> bool,
+    {
+        let _ = on_log;
+        for op in operations {
+            if is_cancelled() {
+                return Err("Operation cancelled by user.".to_string());
+            }
+            let temp_root = session
+                .temp_key_for(op.hive)
+                .ok_or_else(|| format!("Hive {} not loaded", op.hive.label()))?;
+            let resolved = op.resolved_subkey(control_set_name);
+
+            match op.kind {
+                ParsedOpKind::CreateKey => {
+                    let _key = create_subkey_no_links(temp_root, &resolved, KEY_WRITE)?;
+                }
+                ParsedOpKind::DeleteKey => {
+                    if is_protected_root_delete(op.hive, &resolved) {
+                        return Err(format!(
+                            "Refusing to delete protected root key '{}' in offline hive '{}'.",
+                            op.original_key,
+                            op.hive.label()
+                        ));
+                    }
+                    delete_key_recursive_privileged(temp_root, &resolved)?;
+                }
+                ParsedOpKind::SetValue => {
+                    let val_name = op.value_name.as_deref().unwrap_or("");
+                    let val_data = op
+                        .value_data
+                        .as_ref()
+                        .ok_or("Missing value data for SetValue")?;
+                    let key = create_subkey_no_links(temp_root, &resolved, KEY_SET_VALUE)?;
+                    let name_w = to_wide_null(val_name);
+                    let name_ptr = if val_name.is_empty() {
+                        PCWSTR::null()
+                    } else {
+                        PCWSTR(name_w.as_ptr())
+                    };
+                    let data_bytes = val_data.to_win32_bytes();
+                    let err = unsafe {
+                        RegSetValueExW(
+                            key.0,
+                            name_ptr,
+                            Some(0),
+                            REG_VALUE_TYPE(val_data.reg_type_id()),
+                            Some(&data_bytes),
+                        )
+                    };
+                    if err != ERROR_SUCCESS {
+                        return Err(format!(
+                            "RegSetValueExW failed for '{}\\{val_name}': WIN32_ERROR({})",
+                            op.original_key, err.0
+                        ));
+                    }
+                }
+                ParsedOpKind::DeleteValue => {
+                    let val_name = op.value_name.as_deref().unwrap_or("");
+                    if let Some(key) = open_subkey_no_links(temp_root, &resolved, KEY_SET_VALUE)? {
+                        let name_w = to_wide_null(val_name);
+                        let name_ptr = if val_name.is_empty() {
+                            PCWSTR::null()
+                        } else {
+                            PCWSTR(name_w.as_ptr())
+                        };
+                        let err = unsafe { RegDeleteValueW(key.0, name_ptr) };
+                        if err != ERROR_SUCCESS && err != ERROR_FILE_NOT_FOUND {
+                            return Err(format!(
+                                "RegDeleteValueW failed for '{}\\{val_name}': WIN32_ERROR({})",
+                                op.original_key, err.0
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn apply_reg_ops_to_mount_cancellable<F, C>(
+        mount_dir: &Path,
+        workspace_dir: &Path,
+        operations: &[ParsedRegOp],
+        is_cancelled: C,
+        mut on_log: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(&str),
+        C: Fn() -> bool,
+    {
+        if operations.is_empty() {
+            return Ok(());
+        }
+        let mut needed_hives = BTreeSet::new();
+        for op in operations {
+            needed_hives.insert(op.hive);
+        }
+
+        enable_backup_restore_privileges()?;
+
+        let mut session = LoadedHiveSession::new(workspace_dir);
+        let apply_res: Result<(), String> = (|| {
+            for hive in &needed_hives {
+                if is_cancelled() {
+                    return Err("Operation cancelled by user.".to_string());
+                }
+                session.load_hive(*hive, mount_dir, &mut on_log)?;
+            }
+
+            let control_set_name = if let Some(sys_temp) = session.temp_key_for(OfflineHive::System)
+            {
+                let cs = read_current_control_set_name(sys_temp);
+                on_log(&format!("Resolved SYSTEM CurrentControlSet -> {cs}"));
+                cs
+            } else {
+                "ControlSet001".to_string()
+            };
+
+            apply_parsed_ops_in_session(
+                &session,
+                &control_set_name,
+                operations,
+                &is_cancelled,
+                &mut on_log,
+            )
+        })();
+
+        // Guarantee all loaded hives are closed and unloaded BEFORE unmount_wim runs
+        let unload_res = session.unload_all(&mut on_log);
+        apply_res?;
+        unload_res?;
+        Ok(())
+    }
+
     pub fn apply_reg_files_to_mount<F>(
         mount_dir: &Path,
         workspace_dir: &Path,
@@ -696,82 +839,13 @@ mod win32_impl {
                     parsed.operations.len(),
                     path.display()
                 ));
-
-                for op in &parsed.operations {
-                    if is_cancelled() {
-                        return Err("Operation cancelled by user.".to_string());
-                    }
-                    let temp_root = session
-                        .temp_key_for(op.hive)
-                        .ok_or_else(|| format!("Hive {} not loaded", op.hive.label()))?;
-                    let resolved = op.resolved_subkey(&control_set_name);
-
-                    match op.kind {
-                        ParsedOpKind::CreateKey => {
-                            let _key = create_subkey_no_links(temp_root, &resolved, KEY_WRITE)?;
-                        }
-                        ParsedOpKind::DeleteKey => {
-                            if is_protected_root_delete(op.hive, &resolved) {
-                                return Err(format!(
-                                    "Refusing to delete protected root key '{}' in offline hive '{}'.",
-                                    op.original_key,
-                                    op.hive.label()
-                                ));
-                            }
-                            delete_key_recursive_privileged(temp_root, &resolved)?;
-                        }
-                        ParsedOpKind::SetValue => {
-                            let val_name = op.value_name.as_deref().unwrap_or("");
-                            let val_data = op
-                                .value_data
-                                .as_ref()
-                                .ok_or("Missing value data for SetValue")?;
-                            let key = create_subkey_no_links(temp_root, &resolved, KEY_SET_VALUE)?;
-                            let name_w = to_wide_null(val_name);
-                            let name_ptr = if val_name.is_empty() {
-                                PCWSTR::null()
-                            } else {
-                                PCWSTR(name_w.as_ptr())
-                            };
-                            let data_bytes = val_data.to_win32_bytes();
-                            let err = unsafe {
-                                RegSetValueExW(
-                                    key.0,
-                                    name_ptr,
-                                    Some(0),
-                                    REG_VALUE_TYPE(val_data.reg_type_id()),
-                                    Some(&data_bytes),
-                                )
-                            };
-                            if err != ERROR_SUCCESS {
-                                return Err(format!(
-                                    "RegSetValueExW failed for '{}\\{val_name}': WIN32_ERROR({})",
-                                    op.original_key, err.0
-                                ));
-                            }
-                        }
-                        ParsedOpKind::DeleteValue => {
-                            let val_name = op.value_name.as_deref().unwrap_or("");
-                            if let Some(key) =
-                                open_subkey_no_links(temp_root, &resolved, KEY_SET_VALUE)?
-                            {
-                                let name_w = to_wide_null(val_name);
-                                let name_ptr = if val_name.is_empty() {
-                                    PCWSTR::null()
-                                } else {
-                                    PCWSTR(name_w.as_ptr())
-                                };
-                                let err = unsafe { RegDeleteValueW(key.0, name_ptr) };
-                                if err != ERROR_SUCCESS && err != ERROR_FILE_NOT_FOUND {
-                                    return Err(format!(
-                                        "RegDeleteValueW failed for '{}\\{val_name}': WIN32_ERROR({})",
-                                        op.original_key, err.0
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
+                apply_parsed_ops_in_session(
+                    &session,
+                    &control_set_name,
+                    &parsed.operations,
+                    &is_cancelled,
+                    &mut on_log,
+                )?;
             }
 
             Ok(())
@@ -788,7 +862,7 @@ mod win32_impl {
 #[cfg(windows)]
 pub use win32_impl::{
     apply_reg_files_to_mount, apply_reg_files_to_mount_cancellable,
-    enable_backup_restore_privileges, unload_hive_by_name,
+    apply_reg_ops_to_mount_cancellable, enable_backup_restore_privileges, unload_hive_by_name,
 };
 
 #[cfg(not(windows))]
@@ -804,6 +878,21 @@ pub fn unload_hive_by_name(temp_subkey: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn apply_reg_ops_to_mount_cancellable<F, C>(
+    _mount_dir: &Path,
+    _workspace_dir: &Path,
+    _operations: &[ParsedRegOp],
+    _is_cancelled: C,
+    _on_log: F,
+) -> Result<(), String>
+where
+    F: FnMut(&str),
+    C: Fn() -> bool,
+{
+    Err("Offline registry operations are only supported on Windows.".to_string())
 }
 
 #[cfg(not(windows))]

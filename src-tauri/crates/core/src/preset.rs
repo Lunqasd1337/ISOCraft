@@ -1,6 +1,7 @@
 use crate::apps::StubOption;
 use crate::files::FilesBuildPlan;
 use crate::fs_utils::{is_symlink_or_reparse, is_unc_or_device_path, read_file_bounded};
+use crate::post_setup::{PostSetupBuildPlan, PostSetupItemKind};
 use crate::registry::RegistryBuildPlan;
 use crate::updates::UpdatesBuildPlan;
 use crate::wim::InstallOutputFormat;
@@ -132,6 +133,7 @@ pub struct PresetDriverItem {
 #[serde(rename_all = "camelCase", default)]
 pub struct PresetDrivers {
     pub items: Vec<PresetDriverItem>,
+    pub remove_published_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +175,7 @@ pub struct StudioPreset {
     pub drivers: PresetDrivers,
     pub registry: RegistryBuildPlan,
     pub files: FilesBuildPlan,
+    pub post_setup: PostSetupBuildPlan,
     pub output: PresetOutput,
 }
 
@@ -187,6 +190,7 @@ pub enum MissingPathKind {
     DriverItem,
     RegFile,
     CustomFile,
+    PostSetupFile,
     AutounattendXml,
 }
 
@@ -263,6 +267,11 @@ pub fn reject_unc_paths_in_preset(preset: &StudioPreset) -> Result<(), String> {
     }
     for file_item in &preset.files.items {
         check(&file_item.source_path)?;
+    }
+    for ps_item in &preset.post_setup.items {
+        if let Some(src) = ps_item.source_path.as_deref() {
+            check(src)?;
+        }
     }
     if let Some(xml) = preset.output.autounattend_path.as_deref() {
         check(xml)?;
@@ -373,6 +382,21 @@ pub fn find_missing_preset_paths(preset: &StudioPreset) -> Vec<MissingPresetPath
                 &file_item.source_path,
                 None,
             );
+        }
+    }
+
+    for ps_item in &preset.post_setup.items {
+        if matches!(
+            ps_item.kind,
+            PostSetupItemKind::Installer | PostSetupItemKind::Script
+        ) && let Some(src) = ps_item
+            .source_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            && !path_exists_matching(src, false)
+        {
+            push_missing(MissingPathKind::PostSetupFile, false, src, None);
         }
     }
 
@@ -563,6 +587,7 @@ mod tests {
                     inject_to_install_wim: true,
                     inject_to_boot_wim: true,
                 }],
+                remove_published_names: vec!["oem5.inf".to_string()],
             },
             registry: RegistryBuildPlan {
                 reg_files: vec![RegQueueEntry {
@@ -578,6 +603,21 @@ mod tests {
                     destination_path: r"Windows\Setup\Scripts".to_string(),
                     conflict_policy: ConflictPolicy::Overwrite,
                 }],
+            },
+            post_setup: PostSetupBuildPlan {
+                items: vec![crate::post_setup::PostSetupItem {
+                    id: "winget-1".to_string(),
+                    kind: PostSetupItemKind::Winget,
+                    phase: crate::post_setup::PostSetupPhase::FirstLogon,
+                    enabled: true,
+                    source_path: None,
+                    args: String::new(),
+                    winget_id: Some("7zip.7zip".to_string()),
+                    display_name: Some("7-Zip".to_string()),
+                    winget_source: crate::post_setup::WingetSource::Winget,
+                    winget_scope: crate::post_setup::WingetScope::Default,
+                }],
+                ..Default::default()
             },
             output: PresetOutput {
                 target: "iso".to_string(),
@@ -605,6 +645,15 @@ mod tests {
             InstallOutputFormat::Esd
         );
         assert_eq!(imported.preset.files.items.len(), 1);
+        assert_eq!(imported.preset.post_setup.items.len(), 1);
+        assert_eq!(
+            imported.preset.post_setup.items[0].winget_id.as_deref(),
+            Some("7zip.7zip")
+        );
+        assert_eq!(
+            imported.preset.drivers.remove_published_names,
+            vec!["oem5.inf".to_string()]
+        );
         assert!(imported.missing_paths.is_empty());
 
         let _ = fs::remove_dir_all(&base);
@@ -743,6 +792,7 @@ mod tests {
                     is_directory: Some(true),
                     ..Default::default()
                 }],
+                ..Default::default()
             },
             registry: RegistryBuildPlan {
                 reg_files: vec![
@@ -768,6 +818,21 @@ mod tests {
                     conflict_policy: ConflictPolicy::Overwrite,
                 }],
             },
+            post_setup: PostSetupBuildPlan {
+                items: vec![crate::post_setup::PostSetupItem {
+                    id: "ps-1".to_string(),
+                    kind: PostSetupItemKind::Installer,
+                    phase: crate::post_setup::PostSetupPhase::BeforeLogon,
+                    enabled: true,
+                    source_path: Some(base.join("missing_setup.exe").to_string_lossy().to_string()),
+                    args: "/S".to_string(),
+                    winget_id: None,
+                    display_name: None,
+                    winget_source: crate::post_setup::WingetSource::Winget,
+                    winget_scope: crate::post_setup::WingetScope::Default,
+                }],
+                ..Default::default()
+            },
             output: PresetOutput {
                 autounattend_path: Some(
                     base.join("missing_unattend.xml")
@@ -780,7 +845,7 @@ mod tests {
         };
 
         let missing = find_missing_preset_paths(&preset);
-        assert_eq!(missing.len(), 9);
+        assert_eq!(missing.len(), 10);
         assert_eq!(missing[0].kind, MissingPathKind::AppxPackage);
         assert_eq!(missing[1].kind, MissingPathKind::AppxDependency);
         assert_eq!(missing[2].kind, MissingPathKind::AppxLicense);
@@ -792,7 +857,8 @@ mod tests {
         assert!(missing[5].expected_directory);
         assert_eq!(missing[6].kind, MissingPathKind::RegFile);
         assert_eq!(missing[7].kind, MissingPathKind::CustomFile);
-        assert_eq!(missing[8].kind, MissingPathKind::AutounattendXml);
+        assert_eq!(missing[8].kind, MissingPathKind::PostSetupFile);
+        assert_eq!(missing[9].kind, MissingPathKind::AutounattendXml);
 
         let _ = fs::remove_dir_all(&base);
     }

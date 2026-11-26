@@ -49,6 +49,8 @@ const EXACT_BACKEND_ERRORS: Record<
   "Appx package path cannot be empty.": () =>
     i18n.t("backendErrors.appxPathEmpty"),
   "dism.exe not found.": () => i18n.t("backendErrors.dismNotFound"),
+  "pnputil.exe not found in Windows directory.": () =>
+    i18n.t("backendErrors.pnputilNotFound"),
   "wimlib-imagex.exe is missing.": () => i18n.t("backendErrors.wimlibMissing"),
   "ISO output requires an .iso source image with bootloaders.": () =>
     i18n.t("backendErrors.isoRequiresIsoSource"),
@@ -62,6 +64,12 @@ const EXACT_BACKEND_ERRORS: Record<
     i18n.t("backendErrors.noImageIndices"),
   "No .inf driver files found in the selected folder.": () =>
     i18n.t("backendErrors.driverNoInfFound"),
+  "No host drivers selected for export.": () =>
+    i18n.t("backendErrors.driverExportNoneSelected"),
+  "Driver export destination path must not be empty.": () =>
+    i18n.t("backendErrors.driverExportDestEmpty"),
+  "Failed exporting any selected host drivers.": () =>
+    i18n.t("backendErrors.driverExportAllFailed"),
   "Selected folder contains no .msu or .cab update packages.": () =>
     i18n.t("backendErrors.updateNoPackagesFound"),
   "Search query must not be empty.": () =>
@@ -74,6 +82,18 @@ const EXACT_BACKEND_ERRORS: Record<
     i18n.t("backendErrors.fileEmptySegment"),
   "Custom file or folder path must not be empty.": () =>
     i18n.t("backendErrors.filePathEmpty"),
+  "Winget package ID must not be empty.": () =>
+    i18n.t("backendErrors.postSetupWingetEmpty"),
+  "Post-Setup arguments must not contain newline or NUL characters.": () =>
+    i18n.t("backendErrors.postSetupArgsUnsafe"),
+  "Post-Setup file path must not be empty.": () =>
+    i18n.t("backendErrors.postSetupPathEmpty"),
+  "Post-Setup local file path must not be empty.": () =>
+    i18n.t("backendErrors.postSetupPathEmpty"),
+  "Winget packages can only run during the First Logon (User) phase.": () =>
+    i18n.t("backendErrors.postSetupWingetPhase"),
+  "Post-Setup FirstLogonCommands (autounattend.xml) requires ISO output target.": () =>
+    i18n.t("backendErrors.postSetupAutounattendRequiresIso"),
 };
 
 const EXACT_DISM_HINTS: Record<string, () => string> = {
@@ -131,6 +151,62 @@ const REGEX_BACKEND_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [
     /^Failed reading driver folder '([^']+)': ([\s\S]+)$/,
     (m) => i18n.t("backendErrors.driverReadFolderFailed", { path: m[1], details: m[2] }),
+  ],
+  [
+    /^Invalid OEM driver published name '([^']*)'\. Expected format like oem12\.inf\.$/,
+    (m) => i18n.t("backendErrors.driverInvalidPublishedName", { name: m[1] }),
+  ],
+  [
+    /^Network\/UNC or Windows device paths are not allowed for driver export destination: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportUncNotAllowed", { path: m[1] }),
+  ],
+  [
+    /^Driver export destination must be an absolute path: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportNotAbsolute", { path: m[1] }),
+  ],
+  [
+    /^Symbolic links and junctions are not supported for driver export destination: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportSymlinkUnsupported", { path: m[1] }),
+  ],
+  [
+    /^Driver export destination '([^']+)' points to an existing file\.$/,
+    (m) => i18n.t("backendErrors.driverExportIsFile", { path: m[1] }),
+  ],
+  [
+    /^Driver export destination cannot reside inside temporary workspace session_current: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportInsideSession", { path: m[1] }),
+  ],
+  [
+    /^Drive root cannot be used as driver export destination: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportDriveRoot", { path: m[1] }),
+  ],
+  [
+    /^Windows directory cannot be used as driver export destination: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.driverExportWindowsDir", { path: m[1] }),
+  ],
+  [
+    /^Invalid Winget package ID '([^']*)': ([\s\S]+)$/,
+    (m) => i18n.t("backendErrors.postSetupWingetInvalid", { id: m[1] }),
+  ],
+  [
+    /^Winget package ID '([^']*)' is too long\.$/,
+    (m) => i18n.t("backendErrors.postSetupWingetInvalid", { id: m[1] }),
+  ],
+  [
+    /^Post-Setup file does not exist: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.postSetupFileNotFound", { path: m[1] }),
+  ],
+  [
+    /^Symbolic links and junctions are not supported for Post-Setup files: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.postSetupSymlinkUnsupported", { path: m[1] }),
+  ],
+  [
+    /^Post-Setup item must be a regular file: '([^']+)'$/,
+    (m) => i18n.t("backendErrors.postSetupNotRegularFile", { path: m[1] }),
+  ],
+  [
+    /^Unsupported Post-Setup file '([^']+)'\. Expected \.exe, \.msi, \.ps1, \.cmd, or \.bat\.$/,
+    (m) => i18n.t("backendErrors.postSetupUnsupportedFile", { path: m[1] }),
   ],
   [
     /^Update path does not exist: ([\s\S]+)$/,

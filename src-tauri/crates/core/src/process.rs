@@ -20,6 +20,7 @@ pub enum OperationKind {
     ImageInspect,
     CatalogLoad,
     CatalogDownload,
+    DriverExport,
     Build,
     Recovery,
     StorageClear,

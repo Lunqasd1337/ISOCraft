@@ -23,6 +23,8 @@ import type {
   ImageInspectionResult,
   MissingPresetPath,
   OutputOptions,
+  PostSetupFileScanResult,
+  PostSetupQueueState,
   PresetImportResult,
   RegFilePreview,
   RegQueueItem,
@@ -55,6 +57,8 @@ interface UsePresetWorkflowParams {
   setRegistryQueue: Dispatch<SetStateAction<RegistryQueueState>>;
   filesQueue: FilesQueueState;
   setFilesQueue: Dispatch<SetStateAction<FilesQueueState>>;
+  postSetupQueue: PostSetupQueueState;
+  setPostSetupQueue: Dispatch<SetStateAction<PostSetupQueueState>>;
   output: OutputOptions;
   setOutput: Dispatch<SetStateAction<OutputOptions>>;
 }
@@ -88,6 +92,8 @@ export function usePresetWorkflow({
   setRegistryQueue,
   filesQueue,
   setFilesQueue,
+  postSetupQueue,
+  setPostSetupQueue,
   output,
   setOutput,
 }: UsePresetWorkflowParams) {
@@ -110,6 +116,11 @@ export function usePresetWorkflow({
       const drvSet = new Set(driversQueue.items.map((d) => d.path.toLowerCase()));
       const regSet = new Set(registryQueue.regFiles.map((r) => r.path.toLowerCase()));
       const fileSet = new Set(filesQueue.items.map((f) => f.sourcePath.toLowerCase()));
+      const postSetupSet = new Set(
+        postSetupQueue.items
+          .map((i) => i.sourcePath?.toLowerCase() ?? "")
+          .filter(Boolean)
+      );
       const sxsSet = new Set<string>();
       if (featuresQueue.customSxsPath) {
         sxsSet.add(featuresQueue.customSxsPath.toLowerCase());
@@ -152,6 +163,8 @@ export function usePresetWorkflow({
             return regSet.has(pLow);
           case "customFile":
             return fileSet.has(pLow);
+          case "postSetupFile":
+            return postSetupSet.has(pLow);
           case "autounattendXml":
             return unattendLower === pLow;
           default:
@@ -167,6 +180,7 @@ export function usePresetWorkflow({
     driversQueue,
     registryQueue,
     filesQueue,
+    postSetupQueue,
     output.autounattendPath,
   ]);
 
@@ -264,6 +278,7 @@ export function usePresetWorkflow({
               ? d.injectToBootWim
               : false,
         })),
+        removePublishedNames: driversQueue.removePublishedNames,
       },
       registry: {
         regFiles: registryQueue.regFiles.map((r) => ({
@@ -279,6 +294,11 @@ export function usePresetWorkflow({
           destinationPath: f.destinationPath,
           conflictPolicy: f.conflictPolicy,
         })),
+      },
+      postSetup: {
+        ...postSetupQueue,
+        firstLogonMode:
+          output.target === "iso" ? postSetupQueue.firstLogonMode : "runOnce",
       },
       output: {
         target: output.target,
@@ -579,9 +599,31 @@ export function usePresetWorkflow({
               ? d.injectToBootWim
               : false,
         })),
+        removePublishedNames: Array.from(
+          new Set(
+            (p.drivers.removePublishedNames ?? [])
+              .map((n) => n.trim())
+              .filter(Boolean)
+          )
+        ),
       });
       setRegistryQueue({ regFiles: loadedRegs });
       setFilesQueue({ items: loadedFiles });
+      setPostSetupQueue({
+        items: (p.postSetup?.items ?? []).map((item, idx) => ({
+          ...item,
+          id:
+            item.id && item.id.trim()
+              ? item.id
+              : `${item.kind}-${idx}-${Date.now()}`,
+        })),
+        firstLogonMode:
+          finalTarget === "iso" && p.postSetup?.firstLogonMode === "autounattend"
+            ? "autounattend"
+            : "runOnce",
+        cleanupTempFiles: p.postSetup?.cleanupTempFiles ?? true,
+        waitForNetwork: p.postSetup?.waitForNetwork ?? true,
+      });
 
       setOutput((prev) => {
         let nextOutPath = prev.outputPath;
@@ -654,6 +696,14 @@ export function usePresetWorkflow({
           break;
         case "regFile":
           filters = [{ name: t("dialogs.registryFiles"), extensions: ["reg"] }];
+          break;
+        case "postSetupFile":
+          filters = [
+            {
+              name: t("dialogs.postSetupFiles"),
+              extensions: ["exe", "msi", "ps1", "cmd", "bat"],
+            },
+          ];
           break;
         default:
           filters = undefined;
@@ -827,7 +877,7 @@ export function usePresetWorkflow({
                 next.push(candidate);
               }
             }
-            return { items: next };
+            return { ...prev, items: next };
           });
           break;
         }
@@ -870,6 +920,30 @@ export function usePresetWorkflow({
                     totalBytes: scan.totalBytes,
                   }
                 : f
+            ),
+          }));
+          break;
+        }
+        case "postSetupFile": {
+          const scan = await invoke<PostSetupFileScanResult>("scan_post_setup_file", {
+            path: picked,
+          });
+          if (seq !== presetSeqRef.current) return;
+          setPostSetupQueue((prev) => ({
+            ...prev,
+            items: prev.items.map((item) =>
+              item.sourcePath?.toLowerCase() === oldLower
+                ? {
+                    ...item,
+                    kind: scan.kind,
+                    sourcePath: scan.path,
+                    displayName: scan.fileName,
+                    phase:
+                      scan.kind === "installer" || item.phase === "firstLogon"
+                        ? item.phase
+                        : "firstLogon",
+                  }
+                : item
             ),
           }));
           break;
@@ -973,6 +1047,7 @@ export function usePresetWorkflow({
         break;
       case "driverItem":
         setDriversQueue((prev) => ({
+          ...prev,
           items: prev.items.filter((d) => d.path.toLowerCase() !== oldLower),
         }));
         break;
@@ -985,6 +1060,14 @@ export function usePresetWorkflow({
         setFilesQueue((prev) => ({
           items: prev.items.filter(
             (f) => f.sourcePath.toLowerCase() !== oldLower
+          ),
+        }));
+        break;
+      case "postSetupFile":
+        setPostSetupQueue((prev) => ({
+          ...prev,
+          items: prev.items.filter(
+            (i) => i.sourcePath?.toLowerCase() !== oldLower
           ),
         }));
         break;

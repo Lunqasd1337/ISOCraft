@@ -369,6 +369,26 @@
   }
 }
 
+@keyframes sidebar-icon-terminal-chevron {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  45% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes sidebar-icon-terminal-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.25;
+  }
+}
+
 @layer utilities {
   .animate-fluent-screen {
     animation: fluent-screen-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -503,6 +523,12 @@
     stroke-dasharray: 1;
     animation: sidebar-icon-check-draw 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+  .animate-sidebar-terminal-chevron {
+    animation: sidebar-icon-terminal-chevron 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-sidebar-terminal-cursor {
+    animation: sidebar-icon-terminal-cursor 460ms ease-in-out both;
+  }
   .sidebar-slider-knob {
     transition: transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
@@ -545,7 +571,9 @@ html.theme-transitioning *::after {
   .animate-sidebar-bracket-right,
   .animate-sidebar-hop,
   .animate-sidebar-plus-turn,
-  .animate-sidebar-check-draw {
+  .animate-sidebar-check-draw,
+  .animate-sidebar-terminal-chevron,
+  .animate-sidebar-terminal-cursor {
     animation: none !important;
   }
   *,

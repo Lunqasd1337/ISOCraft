@@ -8,6 +8,7 @@ pub mod fs_utils;
 pub mod image;
 pub mod iso;
 pub mod logger;
+pub mod post_setup;
 pub mod preset;
 pub mod process;
 pub mod reg_parser;

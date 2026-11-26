@@ -6,7 +6,9 @@ use isocraft_core::apps::{
     add_provisioned_appx, remove_provisioned_appx, validate_appx_request_paths,
 };
 use isocraft_core::dism::query_mounted_appx_list_tracked;
-use isocraft_core::drivers::{inject_driver, scan_driver_path};
+use isocraft_core::drivers::{
+    inject_driver, is_valid_published_inf_name, remove_driver, scan_driver_path,
+};
 use isocraft_core::env::{find_bundled_or_path, find_dism, find_oscdimg};
 use isocraft_core::features::{
     apply_add_capability, apply_disable_feature, apply_enable_feature, apply_remove_capability,
@@ -14,7 +16,13 @@ use isocraft_core::features::{
 use isocraft_core::files::{FileTarget, apply_file_injections, validate_file_injection_item};
 use isocraft_core::fs_utils::{is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path};
 use isocraft_core::image::{SourceKind, extract_iso_and_export_edition};
-use isocraft_core::iso::{IsoBuildOptions, build_bootable_iso, validate_autounattend};
+use isocraft_core::iso::{
+    IsoBuildOptions, build_bootable_iso, validate_autounattend, validate_autounattend_with_bytes,
+};
+use isocraft_core::post_setup::{
+    FirstLogonMode, apply_post_setup_to_mount_cancellable, merge_first_logon_into_autounattend,
+    validate_post_setup_plan,
+};
 use isocraft_core::process::OperationKind;
 use isocraft_core::reg_parser::preview_reg_file;
 use isocraft_core::registry::apply_reg_files_to_mount_cancellable;
@@ -246,6 +254,14 @@ pub(crate) fn preflight_validate_build_config(
         scan_driver_path(p)?;
     }
 
+    for pub_name in &config.drivers.remove_published_names {
+        if !is_valid_published_inf_name(pub_name) {
+            return Err(format!(
+                "Invalid OEM driver published name '{pub_name}'. Expected format like oem12.inf."
+            ));
+        }
+    }
+
     for reg in config.registry.reg_files.iter().filter(|r| r.enabled) {
         let p = Path::new(reg.path.trim());
         reject_unc_or_session_path(p, &session_dir, "Registry file path")?;
@@ -269,6 +285,17 @@ pub(crate) fn preflight_validate_build_config(
             "Custom file source path",
         )?;
         validate_file_injection_item(item)?;
+    }
+
+    validate_post_setup_plan(&config.post_setup, Some(&session_dir))?;
+    if config.post_setup.has_enabled_first_logon()
+        && config.post_setup.first_logon_mode == FirstLogonMode::Autounattend
+        && config.target != "iso"
+    {
+        return Err(
+            "Post-Setup FirstLogonCommands (autounattend.xml) requires ISO output target."
+                .to_string(),
+        );
     }
 
     Ok(())
@@ -347,12 +374,14 @@ pub(crate) async fn run_build_pipeline(
         || !config.updates.items.is_empty()
         || config.updates.run_component_cleanup
         || config.drivers.items.iter().any(|d| d.inject_to_install_wim)
+        || !config.drivers.remove_published_names.is_empty()
         || config.registry.reg_files.iter().any(|r| r.enabled)
         || config
             .files
             .items
             .iter()
-            .any(|f| f.target == FileTarget::InstallWim);
+            .any(|f| f.target == FileTarget::InstallWim)
+        || config.post_setup.has_enabled_items();
 
     let needs_boot_wim_mount = config.target == "iso"
         && config.source_kind == SourceKind::Iso
@@ -870,16 +899,23 @@ pub(crate) async fn run_build_pipeline(
                 }
 
                 // Step 7: Drivers (.inf) into install.wim and optionally boot.wim (Index 2)
-                if !config.drivers.items.is_empty() {
+                if !config.drivers.items.is_empty()
+                    || (install_mounted && !config.drivers.remove_published_names.is_empty())
+                {
                     emit_progress(
                         &app,
                         7,
                         9,
                         "step_drivers",
                         66.0,
-                        "Injecting device drivers...",
+                        "Managing device drivers...",
                     );
 
+                    let remove_drv_count = if install_mounted {
+                        config.drivers.remove_published_names.len()
+                    } else {
+                        0
+                    };
                     let install_drv_count = if install_mounted {
                         config
                             .drivers
@@ -900,10 +936,41 @@ pub(crate) async fn run_build_pipeline(
                     } else {
                         0
                     };
-                    let total_drv_ops = (install_drv_count + boot_drv_count).max(1) as f32;
+                    let total_drv_ops =
+                        (remove_drv_count + install_drv_count + boot_drv_count).max(1) as f32;
                     let mut drv_idx = 0usize;
 
                     if install_mounted {
+                        for pub_name in &config.drivers.remove_published_names {
+                            let s = 66.0 + 6.0 * (drv_idx as f32 / total_drv_ops);
+                            let e = 66.0 + 6.0 * ((drv_idx + 1) as f32 / total_drv_ops);
+                            let mut pct = s;
+                            remove_driver(
+                                &dism_path,
+                                &mount_install,
+                                &dism_log,
+                                pub_name,
+                                Some(&state.process_guard),
+                                |msg| {
+                                    log_with_progress(
+                                        &state,
+                                        &app,
+                                        ProgressSpec {
+                                            step: 7,
+                                            phase_key: "step_drivers",
+                                            start_pct: s,
+                                            end_pct: e,
+                                            tool: ProgressTool::Dism,
+                                        },
+                                        &mut pct,
+                                        msg,
+                                    )
+                                },
+                            )
+                            .await?;
+                            drv_idx += 1;
+                        }
+
                         for drv in config
                             .drivers
                             .items
@@ -1106,6 +1173,36 @@ pub(crate) async fn run_build_pipeline(
                     );
                 }
 
+                if install_mounted && config.post_setup.has_enabled_items() {
+                    emit_progress(
+                        &app,
+                        8,
+                        9,
+                        "step_post_setup",
+                        77.0,
+                        "Configuring Post-Setup scripts and payloads...",
+                    );
+
+                    let mount_clone = mount_install.clone();
+                    let ws_clone = workspace_dir.clone();
+                    let post_setup_clone = config.post_setup.clone();
+                    let app_clone = app.clone();
+                    tokio::task::spawn_blocking(move || {
+                        apply_post_setup_to_mount_cancellable(
+                            &mount_clone,
+                            &ws_clone,
+                            &post_setup_clone,
+                            || app_clone.state::<AppState>().process_guard.is_cancel_requested(),
+                            |msg| {
+                                let st = app_clone.state::<AppState>();
+                                log_and_emit(&st, &app_clone, "info", msg);
+                            },
+                        )
+                    })
+                    .await
+                    .map_err(|e| format!("Post-Setup staging task panicked: {e}"))??;
+                }
+
                 Ok(())
             }
             .await;
@@ -1304,6 +1401,26 @@ pub(crate) async fn run_build_pipeline(
                 .filter(|s| !s.trim().is_empty())
                 .map(PathBuf::from);
 
+            let merged_autounattend_bytes = if config.post_setup.has_enabled_first_logon()
+                && config.post_setup.first_logon_mode == FirstLogonMode::Autounattend
+            {
+                let existing_bytes = if let Some(ref xml_p) = autounattend_ref {
+                    let (v, b) = validate_autounattend_with_bytes(xml_p);
+                    if !v.valid {
+                        return Err(format!(
+                            "Invalid autounattend.xml: {}",
+                            v.error.unwrap_or_else(|| "unknown XML error".to_string())
+                        ));
+                    }
+                    b
+                } else {
+                    None
+                };
+                Some(merge_first_logon_into_autounattend(existing_bytes.as_deref())?)
+            } else {
+                None
+            };
+
             let iso_tool = build_bootable_iso(
                 IsoBuildOptions {
                     iso_root: &iso_root,
@@ -1311,6 +1428,7 @@ pub(crate) async fn run_build_pipeline(
                     volume_label: &config.volume_label,
                     uefi_no_prompt: config.uefi_no_prompt,
                     autounattend_path: autounattend_ref.as_deref(),
+                    autounattend_xml_override: merged_autounattend_bytes.as_deref(),
                     add_generic_ei_cfg: config.add_generic_ei_cfg,
                     oscdimg_path: oscdimg.as_deref(),
                     xorriso_path: xorriso.as_deref(),
@@ -1377,6 +1495,10 @@ mod tests {
     use crate::state::{AppsBuildPlan, FeaturesBuildPlan};
     use isocraft_core::drivers::DriversBuildPlan;
     use isocraft_core::files::FilesBuildPlan;
+    use isocraft_core::post_setup::{
+        PostSetupBuildPlan, PostSetupItem, PostSetupItemKind, PostSetupPhase, WingetScope,
+        WingetSource,
+    };
     use isocraft_core::registry::{RegQueueEntry, RegistryBuildPlan};
     use isocraft_core::updates::UpdatesBuildPlan;
     use isocraft_core::wim::InstallOutputFormat;
@@ -1399,6 +1521,7 @@ mod tests {
             drivers: DriversBuildPlan::default(),
             registry: RegistryBuildPlan::default(),
             files: FilesBuildPlan::default(),
+            post_setup: PostSetupBuildPlan::default(),
         }
     }
 
@@ -1513,6 +1636,31 @@ mod tests {
                 .unwrap_err()
                 .contains("session_current")
         );
+
+        // Invalid remove_published_names rejected; valid oemX.inf accepted
+        cfg.registry.reg_files.clear();
+        cfg.drivers.remove_published_names = vec!["oem12.inf".to_string()];
+        assert!(preflight_validate_build_config(&cfg, &dir).is_ok());
+        cfg.drivers.remove_published_names = vec!["..\\evil.inf".to_string()];
+        assert!(preflight_validate_build_config(&cfg, &dir).is_err());
+        cfg.drivers.remove_published_names.clear();
+
+        // Invalid winget ID in Post-Setup rejected; valid accepted
+        cfg.post_setup.items.push(PostSetupItem {
+            id: "wg1".into(),
+            kind: PostSetupItemKind::Winget,
+            phase: PostSetupPhase::FirstLogon,
+            enabled: true,
+            source_path: None,
+            args: String::new(),
+            winget_id: Some("7zip.7zip".into()),
+            display_name: None,
+            winget_source: WingetSource::Winget,
+            winget_scope: WingetScope::Default,
+        });
+        assert!(preflight_validate_build_config(&cfg, &dir).is_ok());
+        cfg.post_setup.items[0].winget_id = Some("bad;calc".into());
+        assert!(preflight_validate_build_config(&cfg, &dir).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

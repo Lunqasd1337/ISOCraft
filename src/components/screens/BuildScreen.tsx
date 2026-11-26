@@ -14,6 +14,7 @@ import {
   PackageCheck,
   RefreshCw,
   SlidersHorizontal,
+  Terminal,
   Upload,
   X,
   XCircle,
@@ -37,6 +38,7 @@ import type {
   InstallOutputFormat,
   MissingPresetPath,
   OutputOptions,
+  PostSetupQueueState,
   RegistryQueueState,
   SectionId,
   UpdatesQueueState,
@@ -51,6 +53,7 @@ interface BuildScreenProps {
   driversQueue: DriversQueueState;
   registryQueue: RegistryQueueState;
   filesQueue: FilesQueueState;
+  postSetupQueue: PostSetupQueueState;
   onChangeUpdatesQueue: (next: UpdatesQueueState) => void;
   output: OutputOptions;
   onChangeOutput: (next: OutputOptions) => void;
@@ -81,6 +84,7 @@ export function BuildScreen({
   driversQueue,
   registryQueue,
   filesQueue,
+  postSetupQueue,
   onChangeUpdatesQueue,
   output,
   onChangeOutput,
@@ -239,20 +243,28 @@ export function BuildScreen({
     (sum, item) => sum + item.infCount,
     0
   );
+  const removedDriversCount = driversQueue.removePublishedNames.length;
   const hasBootWimDrivers = driversQueue.items.some(
     (d) => d.injectToBootWim && output.target === "iso"
   );
   const driversSummary =
-    driversQueue.items.length > 0
+    driversQueue.items.length > 0 || removedDriversCount > 0
       ? [
-          t("screens.build.summaryDriversCount", {
-            count: driversQueue.items.length,
-            infs: totalDriverInfs,
-          }),
+          driversQueue.items.length > 0
+            ? t("screens.build.summaryDriversCount", {
+                count: driversQueue.items.length,
+                infs: totalDriverInfs,
+              })
+            : null,
+          removedDriversCount > 0
+            ? t("screens.build.summaryDriversRemoved", {
+                count: removedDriversCount,
+              })
+            : null,
           hasBootWimDrivers ? t("screens.build.summaryDriversBootBadge") : null,
         ]
           .filter(Boolean)
-          .join(" ")
+          .join(" • ")
       : t("screens.build.noQueuedItems");
 
   const summaryRows: BuildSummaryRow[] = [
@@ -316,6 +328,30 @@ export function BuildScreen({
         return hasIsoFiles
           ? `${base} ${t("screens.build.summaryFilesIsoBadge")}`
           : base;
+      })(),
+    },
+    {
+      id: "postSetup",
+      label: t("screens.build.summaryPostSetup"),
+      icon: Terminal,
+      summary: (() => {
+        const enabled = postSetupQueue.items.filter((i) => i.enabled);
+        if (enabled.length === 0) return t("screens.build.noQueuedItems");
+        const before = enabled.filter((i) => i.phase === "beforeLogon").length;
+        const first = enabled.filter((i) => i.phase === "firstLogon").length;
+        const winget = enabled.filter((i) => i.kind === "winget").length;
+        return [
+          t("screens.build.summaryPostSetupCount", {
+            count: enabled.length,
+            before,
+            first,
+          }),
+          winget > 0
+            ? t("screens.build.summaryPostSetupWinget", { count: winget })
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
       })(),
     },
   ];

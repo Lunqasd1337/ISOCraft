@@ -347,6 +347,37 @@ test("backendErrors.localizeBackendError and localizeXmlError translate known st
       message: i18n.t("regMessages.regLinkNotAllowed"),
     })
   );
+
+  // Stage 1 & 2 new backend error mappings (RU and EN)
+  i18n.changeLanguage("ru");
+  assert.equal(
+    backendErrors.localizeBackendError("pnputil.exe not found in Windows directory."),
+    i18n.t("backendErrors.pnputilNotFound")
+  );
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Invalid OEM driver published name 'bad.inf'. Expected format like oem12.inf."
+    ),
+    i18n.t("backendErrors.driverInvalidPublishedName", { name: "bad.inf" })
+  );
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Winget packages can only run during the First Logon (User) phase."
+    ),
+    i18n.t("backendErrors.postSetupWingetPhase")
+  );
+  assert.equal(
+    backendErrors.localizeBackendError("Invalid Winget package ID 'bad;id': bad"),
+    i18n.t("backendErrors.postSetupWingetInvalid", { id: "bad;id" })
+  );
+
+  i18n.changeLanguage("en");
+  assert.equal(
+    backendErrors.localizeBackendError(
+      "Post-Setup FirstLogonCommands (autounattend.xml) requires ISO output target."
+    ),
+    i18n.t("backendErrors.postSetupAutounattendRequiresIso")
+  );
 });
 
 test("syncVersion.normalizeVersion & bumpSemver handle valid/invalid versions", () => {

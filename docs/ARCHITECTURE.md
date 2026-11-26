@@ -22,10 +22,10 @@
 
 ```mermaid
 flowchart LR
-  UI["React 19 + TypeScript UI"] -->|"invoke (29 IPC commands)"| CMD["isocraft: commands.rs & pipeline.rs"]
-  CMD -->|"emit (5 events)"| UI
-  CMD --> CORE["isocraft-core (18 modules)"]
-  CORE -->|"CLI / ProcessGuard"| TOOLS["dism.exe / wimlib-imagex / xorriso / oscdimg / curl / powershell"]
+  UI["React 19 + TypeScript UI"] -->|"invoke (34 IPC commands)"| CMD["isocraft: commands.rs & pipeline.rs"]
+  CMD -->|"emit (6 events)"| UI
+  CMD --> CORE["isocraft-core (19 modules)"]
+  CORE -->|"CLI / ProcessGuard"| TOOLS["dism.exe / pnputil.exe / wimlib-imagex / xorriso / oscdimg / curl / powershell"]
   CORE -->|"Win32 API"| WIN["RegLoadKeyW / NtDeleteKey / WinVerifyTrust / JobObjects"]
 ```
 
@@ -38,7 +38,7 @@ flowchart LR
 | Файл | Назначение |
 | :--- | :--- |
 | `main.rs` | Точка входа бинарника Windows (`isocraft_lib::run()`). |
-| `lib.rs` | Инициализация `AppState`, WebView2 (`webview_user_data_dir()`), восстановление и сохранение геометрии окна (`windowWidth`, `windowHeight`, `windowMaximized`), перехват `WindowEvent::CloseRequested` при занятом `ProcessGuard`, регистрация **29 IPC-команд**. |
+| `lib.rs` | Инициализация `AppState`, WebView2 (`webview_user_data_dir()`), восстановление и сохранение геометрии окна (`windowWidth`, `windowHeight`, `windowMaximized`), перехват `WindowEvent::CloseRequested` при занятом `ProcessGuard`, регистрация **34 IPC-команд**. |
 | `state.rs` | `AppState` (`settings`, `logger`, `process_guard`), `BuildConfig`, `BuildProgressEvent`, `AppsBuildPlan`, `FeaturesBuildPlan`, маппинг прогресса `log_with_progress` (`ProgressTool::Dism` / `Wimlib`), `apply_window_theme`, `cleanup_session_dir_if_clean`. |
 | `commands.rs` | Обработчики `#[tauri::command]`, связывающие IPC с `isocraft-core` и `pipeline.rs`, экспорт диагностики и управление автообновлением (`tauri-plugin-updater`). |
 | `pipeline.rs` | Предсборочная проверка `preflight_validate_build_config`, защита от перезаписи исходника (`paths_overlap_source`) и оркестратор 9-шагового пайплайна `run_build_pipeline`. |
@@ -60,7 +60,8 @@ flowchart LR
 | `features.rs` | Включение (`/Enable-Feature`, `/All`, `/LimitAccess`, `/Source`) и отключение Optional Features; добавление (`/LimitAccess`, `/Source`) и удаление Capabilities. |
 | `updates.rs` | Инспекция `.msu`/`.cab` и папок обновлений, пакетное применение 24H2+ Checkpoint CU, расшифровка кодов ошибок DISM, `run_component_cleanup` (с безопасным пропуском `0x800f0806`), реэкспорт `update_catalog`. |
 | `update_catalog.rs` | Поиск (`Search.aspx`), разбор диалогов (`DownloadDialog.aspx`), пошаговая проверка редиректов (`resolve_safe_download_url`), HTTPS-only загрузка обновлений через `curl.exe` (лимиты 10 МиБ HTML / 4 ГиБ файл), проверка allowlist хостов Microsoft и подписи Authenticode во временном `.part`-файле до переименования, маппинг билдов `21H2`..`26H2`. |
-| `drivers.rs` | Сканирование `.inf` и директорий драйверов, инъекция в `install.wim` и `boot.wim` Index 2 (`/Recurse`, `/ForceUnsigned`). |
+| `drivers.rs` | Сканирование `.inf` и директорий драйверов, инъекция в `install.wim` и `boot.wim` Index 2 (`/Recurse`, `/ForceUnsigned`), инспекция и экспорт драйверов текущего ПК (`Get-WindowsDriver -Online`, `pnputil.exe`, `DISM /Online /Export-Driver`), удаление OEM-драйверов образа (`DISM /Remove-Driver`). |
+| `post_setup.rs` | Конструктор постустановки: валидация локальных установщиков/скриптов и `winget` ID, генерация `before_logon.cmd` + `SetupComplete.cmd` (Before Logon `SYSTEM`), `first_logon.ps1` (UTF-8 BOM) + `first_logon.cmd` (First Logon `User`), запись `RunOnce` в `NTUSER.DAT` и безопасное слияние `<FirstLogonCommands>` в `autounattend.xml`. |
 | `reg_parser.rs` | Парсер `.reg` v5 / `REGEDIT4` (до 64 МБ; UTF-16LE/BE/UTF-8; переносы `\`, `@`, все типы кроме `REG_LINK`), маппинг веток (`CurrentControlSet`, `HKCU`, `HKCR`, `HKU\.DEFAULT`) и dry-run предпросмотр (до 500 операций). |
 | `registry.rs` | Нативная Win32 загрузка/выгрузка оффлайн-кустов (`SeBackupPrivilege`/`SeRestorePrivilege`, `RegLoadKeyW` под `ISOCRAFT_<pid>_<HIVE>`, `REG_OPTION_BACKUP_RESTORE`, `NtDeleteKey`, `RegFlushKey`, `RegUnLoadKeyW`) и защита корней кустов (`is_protected_root_delete`). |
 | `files.rs` | Нормализация относительных путей назначения, защита системных путей в `install.wim` и `iso_root`, защита от прохода через NTFS junctions (`check_target_no_reparse_escape`) и копирование с политиками `Overwrite`/`Skip`. |
@@ -77,7 +78,7 @@ flowchart LR
 - **`src/types/studio.ts`** — единый TypeScript-контракт IPC-структур и пресетов.
 - **`src/i18n/`** — конфигурация `i18next` (`index.ts`, `i18next.d.ts`) и словари `locales/{ru,en}.json`.
 - **`src/components/`** — `Titlebar.tsx` (40px, переключатель `RU | EN`, цикл тем, индикатор обновления на кнопке настроек), `Sidebar.tsx` (220px, анимированные индикаторы и бейджи очередей) + `SidebarIcons.tsx`, `StatusBar.tsx` (48px), `LogDrawer.tsx` (виртуальный список логов с поиском и фильтром), `FluentModal.tsx`, `FluentMotion.tsx`, `SettingsModal.tsx` (ленивая загрузка через `React.lazy`), `CloseGuardModal.tsx`, `ConfirmResetModal.tsx` (подтверждение сброса очередей при смене образа/редакции), `ErrorBoundary.tsx`.
-- **`src/components/screens/`** — 8 экранов приложения (`ImageScreen`, `AppsScreen` + `AddAppxModal`, `FeaturesScreen`, `UpdatesScreen` + ленивый `CatalogModal`, `DriversScreen`, `RegistryScreen`, `FilesScreen`, `BuildScreen` + `build/BuildSummaryCard`, `build/BuildProgressCard`, `build/MissingPresetPathsCard`) и `ScreenShell.tsx`.
+- **`src/components/screens/`** — 9 экранов приложения (`ImageScreen`, `AppsScreen` + `AddAppxModal`, `FeaturesScreen`, `UpdatesScreen` + ленивый `CatalogModal`, `DriversScreen` + ленивый `ExportHostDriversModal`, `RegistryScreen`, `FilesScreen`, `PostSetupScreen` + ленивые `AddWingetModal` / `PostSetupPreviewModal`, `BuildScreen` + `build/BuildSummaryCard`, `build/BuildProgressCard`, `build/MissingPresetPathsCard`) и `ScreenShell.tsx`.
 - **Сборка и дизайн-токены (`vite.config.ts`, `src/index.css`):** бандлинг Vite 8 настраивается в [`vite.config.ts`](../vite.config.ts) (`rolldownOptions.output.codeSplitting` для выделения вендорных чанков `react-vendor`, `i18n-vendor`, `icons-vendor`, `tauri-vendor`). Светлая и тёмная темы реализуются через **Tailwind CSS v4** (`@tailwindcss/vite`) и CSS-директивы (`@import "tailwindcss"`, `@custom-variant dark`, `@theme inline`, `@layer base`) в [`src/index.css`](../src/index.css) без отдельного `tailwind.config.js`. Токены с `-rgb` (`canvas`, `sidebar`, `surface`, `text-primary`, `text-secondary`, `accent`, `accent-hover`, `accent-fg`, `status-success`, `status-warning`, `status-danger`) поддерживают модификатор прозрачности Tailwind (`/opacity`), остальные (`subtle`, `border-subtle`, `status-*-bg`, `switch-off-*`) заданы как готовые цвета.
 
 ---
@@ -132,7 +133,7 @@ flowchart TD
 
 ## 5. Контракт IPC (Tauri Commands и Events)
 
-### 5.1. Команды (`invoke`), зарегистрированные в `src-tauri/src/lib.rs` (29 команд)
+### 5.1. Команды (`invoke`), зарегистрированные в `src-tauri/src/lib.rs` (34 команды)
 
 Эксклюзивные операции защищены через `ProcessGuard::try_enter_busy_for(OperationKind)` — параллельный запуск двух тяжёлых операций блокируется.
 
@@ -151,7 +152,12 @@ flowchart TD
 | | `scan_appx_dependencies` | — | Фильтрация зависимостей AppX/MSIX по архитектуре (`x64`/`neutral` допускаются, `x86`/`arm64` отсеиваются). |
 | | `scan_update_path` | — | Подсчёт `.msu`/`.cab` пакетов и размера файла или папки. |
 | | `scan_driver_folder` | — | Подсчёт `.inf` файлов, примеров имён и размера папки/файла драйвера. |
+| | `list_host_drivers` | `DriverExport` | Получение списка сторонних OEM-драйверов текущего ПК (`Get-WindowsDriver -Online`). |
+| | `export_host_drivers` | `DriverExport` | Экспорт выбранных или всех драйверов текущего ПК (`pnputil.exe` / `DISM /Online /Export-Driver`) с опциональным выделением `Storage`/`NVMe`. |
+| | `cancel_driver_export` | — | Отмена активного экспорта драйверов текущего ПК (`OperationKind::DriverExport`). |
 | | `scan_custom_file_path` | — | Инспекция файла или папки для очереди раздела «Файлы». |
+| | `scan_post_setup_file` | — | Проверка и классификация локального файла постустановки (`.exe`/`.msi`/`.ps1`/`.cmd`/`.bat`). |
+| | `preview_post_setup` | — | Предпросмотр сгенерированных скриптов постустановки, записи `RunOnce` и фрагмента `autounattend.xml`. |
 | | `preview_reg_file` | — | Dry-run парсинг `.reg` (затрагиваемые кусты, счётчики set/delete, операции, предупреждения, ошибки). |
 | | `validate_autounattend` | — | XML-проверка `autounattend.xml` (корневой `<unattend>`, стек тегов, список `passes`). |
 | **Microsoft Update Catalog** | `search_update_catalog` | — | Поиск обновлений в `Search.aspx` с опциональным фильтром клиентской Windows 11 x64. |
@@ -168,13 +174,14 @@ flowchart TD
 | | `recover_workspace` | `Recovery` | Принудительная выгрузка кустов `ISOCRAFT_*`, `/Discard` маунтов, `DISM /Cleanup-Wim` и очистка `session_current`. |
 | | `force_cancel_and_close` | — | Принудительное завершение активных операций (таймаут 10 с), откат грязного состояния и `app.exit(0)`. |
 
-### 5.2. События (`listen`, 5 каналов)
+### 5.2. События (`listen`, 6 каналов)
 
 | Событие | Тип payload | Назначение |
 | :--- | :--- | :--- |
 | `app-log` | `LogEntry` | Потоковая доставка записей лога бэкенда и CLI в `useLogStore`. |
 | `build-progress` | `BuildProgressEvent` | Шаг (`1..9`), `totalSteps`, `phaseKey`, `percent` (`0..100`) и текстовое сообщение. |
 | `catalog-download-progress` | `CatalogDownloadProgress` | Прогресс загрузки файлов из Microsoft Update Catalog (`fileIndex`, `totalFiles`, `downloadedBytes`, `totalBytes`, `percent`). |
+| `driver-export-progress` | `DriverExportProgress` | Прогресс экспорта драйверов с текущего ПК (`current`, `total`, `driverName`). |
 | `app-update-progress` | `AppUpdateProgress` | Этапы загрузки обновления приложения (`event`: `"started" \| "progress" \| "finished"`, `downloadedBytes`, `totalBytes`, `percent`). |
 | `close-requested-while-busy` | `()` | Уведомление фронтенда о попытке закрытия окна при занятом `ProcessGuard` для показа `CloseGuardModal`. |
 

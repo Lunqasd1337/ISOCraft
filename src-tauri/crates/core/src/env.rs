@@ -200,6 +200,14 @@ pub fn find_dism() -> ToolStatus {
     )
 }
 
+/// Locates the system pnputil.exe utility used for selective host driver export.
+pub fn find_pnputil() -> ToolStatus {
+    find_system_binary(
+        windows_root_dir().join("System32").join("pnputil.exe"),
+        "pnputil.exe",
+    )
+}
+
 /// Locates the system curl.exe utility used for Microsoft Update Catalog HTTP operations.
 pub fn find_curl() -> ToolStatus {
     find_system_binary(

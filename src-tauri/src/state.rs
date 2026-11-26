@@ -4,6 +4,7 @@ use isocraft_core::features::{CapabilityAddItem, FeatureEnableItem};
 use isocraft_core::files::FilesBuildPlan;
 use isocraft_core::image::{SourceKind, clear_readonly_recursive};
 use isocraft_core::logger::SessionLogger;
+use isocraft_core::post_setup::PostSetupBuildPlan;
 use isocraft_core::process::ProcessGuard;
 use isocraft_core::registry::RegistryBuildPlan;
 use isocraft_core::settings::AppSettings;
@@ -74,6 +75,8 @@ pub struct BuildConfig {
     pub registry: RegistryBuildPlan,
     #[serde(default)]
     pub files: FilesBuildPlan,
+    #[serde(default)]
+    pub post_setup: PostSetupBuildPlan,
 }
 
 pub(crate) fn log_and_emit(

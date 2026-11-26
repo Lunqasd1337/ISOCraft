@@ -6,6 +6,7 @@ export type SectionId =
   | "drivers"
   | "registry"
   | "files"
+  | "postSetup"
   | "build";
 
 export type AppTheme = "light" | "dark" | "system";
@@ -134,6 +135,7 @@ export interface ImageCatalog {
   appxPackages: ProvisionedAppxInfo[];
   features: WindowsFeatureInfo[];
   capabilities: WindowsCapabilityInfo[];
+  drivers: InstalledDriverInfo[];
 }
 
 export interface FeatureEnableItem {
@@ -217,6 +219,49 @@ export interface DriverScanResult {
   totalBytes: number;
 }
 
+export type DriverCategory =
+  | "storage"
+  | "network"
+  | "display"
+  | "audio"
+  | "usb"
+  | "bluetooth"
+  | "input"
+  | "other";
+
+export interface InstalledDriverInfo {
+  publishedName: string;
+  originalFileName: string;
+  className: string;
+  category: DriverCategory | string;
+  providerName: string;
+  date: string;
+  version: string;
+  bootCritical: boolean;
+}
+
+export interface HostDriverExportRequest {
+  publishedNames: string[];
+  exportAll: boolean;
+  destinationDir: string;
+  autoSplitStorage: boolean;
+}
+
+export interface DriverExportProgress {
+  current: number;
+  total: number;
+  driverName: string;
+}
+
+export interface HostDriverExportResult {
+  destinationDir: string;
+  exportedCount: number;
+  failed: string[];
+  storageScan: DriverScanResult | null;
+  otherScan: DriverScanResult | null;
+  combinedScan: DriverScanResult | null;
+}
+
 export interface DriverQueueItem {
   path: string;
   isDirectory: boolean;
@@ -231,6 +276,7 @@ export interface DriverQueueItem {
 
 export interface DriversQueueState {
   items: DriverQueueItem[];
+  removePublishedNames: string[];
 }
 
 export type OfflineHive =
@@ -298,6 +344,50 @@ export interface FileQueueItem {
 
 export interface FilesQueueState {
   items: FileQueueItem[];
+}
+
+export type PostSetupPhase = "beforeLogon" | "firstLogon";
+export type FirstLogonMode = "runOnce" | "autounattend";
+export type PostSetupItemKind = "installer" | "script" | "winget";
+export type WingetScope = "default" | "machine" | "user";
+export type WingetSource = "winget" | "msstore";
+
+export interface PostSetupItem {
+  id: string;
+  kind: PostSetupItemKind;
+  phase: PostSetupPhase;
+  enabled: boolean;
+  sourcePath: string | null;
+  args: string;
+  wingetId: string | null;
+  displayName: string | null;
+  wingetSource: WingetSource;
+  wingetScope: WingetScope;
+}
+
+export interface PostSetupQueueState {
+  items: PostSetupItem[];
+  firstLogonMode: FirstLogonMode;
+  cleanupTempFiles: boolean;
+  waitForNetwork: boolean;
+}
+
+export interface PostSetupFileScanResult {
+  path: string;
+  fileName: string;
+  kind: "installer" | "script";
+  extension: string;
+  sizeBytes: number;
+  suggestedArgs: string;
+}
+
+export interface PostSetupPreview {
+  setupCompleteSnippet: string | null;
+  beforeLogonCmd: string | null;
+  firstLogonCmd: string | null;
+  firstLogonPs1: string | null;
+  runOnceRegEntry: string | null;
+  autounattendSnippet: string | null;
 }
 
 export interface AutounattendValidation {
@@ -382,6 +472,7 @@ export interface StudioPreset {
   };
   drivers: {
     items: PresetDriverItem[];
+    removePublishedNames?: string[];
   };
   registry: {
     regFiles: { path: string; enabled: boolean }[];
@@ -395,6 +486,7 @@ export interface StudioPreset {
       conflictPolicy: ConflictPolicy;
     }[];
   };
+  postSetup?: PostSetupQueueState;
   output: PresetOutput;
 }
 
@@ -407,6 +499,7 @@ export type MissingPathKind =
   | "driverItem"
   | "regFile"
   | "customFile"
+  | "postSetupFile"
   | "autounattendXml";
 
 export interface MissingPresetPath {
@@ -472,6 +565,7 @@ export interface BuildConfig {
       injectToInstallWim: boolean;
       injectToBootWim: boolean;
     }[];
+    removePublishedNames: string[];
   };
   registry: {
     regFiles: { path: string; enabled: boolean }[];
@@ -485,4 +579,5 @@ export interface BuildConfig {
       conflictPolicy: ConflictPolicy;
     }[];
   };
+  postSetup: PostSetupQueueState;
 }
