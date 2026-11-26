@@ -347,12 +347,10 @@ pub fn format_winget_command(item: &PostSetupItem) -> String {
         "--accept-package-agreements".to_string(),
         "--accept-source-agreements".to_string(),
     ];
+    parts.push("--source".to_string());
     match item.winget_source {
-        WingetSource::Winget => {}
-        WingetSource::Msstore => {
-            parts.push("--source".to_string());
-            parts.push("msstore".to_string());
-        }
+        WingetSource::Winget => parts.push("winget".to_string()),
+        WingetSource::Msstore => parts.push("msstore".to_string()),
     }
     match item.winget_scope {
         WingetScope::Default => {}
@@ -484,9 +482,14 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
     let has_winget = active
         .iter()
         .any(|(_, i)| i.kind == PostSetupItemKind::Winget);
+    let has_msstore = active.iter().any(|(_, i)| {
+        i.kind == PostSetupItemKind::Winget && i.winget_source == WingetSource::Msstore
+    });
 
     let mut lines: Vec<String> = vec![
         "$ErrorActionPreference = 'Continue'".to_string(),
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8".to_string(),
+        "$OutputEncoding = [System.Text.Encoding]::UTF8".to_string(),
         "$logDir = Join-Path $env:LOCALAPPDATA 'ISOCraft'".to_string(),
         "New-Item -ItemType Directory -Path $logDir -Force | Out-Null".to_string(),
         "$logFile = Join-Path $logDir 'post_setup_first_logon.log'".to_string(),
@@ -509,12 +512,68 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
         ]);
     }
 
+    if has_msstore {
+        lines.extend([
+            "Write-Log 'Updating Microsoft.DesktopAppInstaller (App Installer) for msstore support...'"
+                .to_string(),
+            "$wingetTmp = Join-Path $env:TEMP 'ISOCraft_AppInstaller'".to_string(),
+            "try {".to_string(),
+            "    New-Item -ItemType Directory -Path $wingetTmp -Force | Out-Null".to_string(),
+            "    $curlExe = Join-Path $env:SystemRoot 'System32\\curl.exe'".to_string(),
+            "    $tarExe = Join-Path $env:SystemRoot 'System32\\tar.exe'".to_string(),
+            "    $bundlePath = Join-Path $wingetTmp 'Microsoft.DesktopAppInstaller.msixbundle'"
+                .to_string(),
+            "    $depsZip = Join-Path $wingetTmp 'DesktopAppInstaller_Dependencies.zip'"
+                .to_string(),
+            "    $depsDir = Join-Path $wingetTmp 'deps'".to_string(),
+            "    & $curlExe -sSL --fail --proto =https --proto-redir =https --connect-timeout 15 --max-time 180 -o $bundlePath 'https://aka.ms/getwinget'"
+                .to_string(),
+            "    $bundleExit = $LASTEXITCODE".to_string(),
+            "    if ($bundleExit -eq 0 -and (Test-Path -LiteralPath $bundlePath) -and (Get-Item -LiteralPath $bundlePath).Length -gt 0) {"
+                .to_string(),
+            "        $depPaths = @()".to_string(),
+            "        & $curlExe -sSL --fail --proto =https --proto-redir =https --connect-timeout 15 --max-time 180 -o $depsZip 'https://aka.ms/getwingetdependencies'"
+                .to_string(),
+            "        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $depsZip) -and (Get-Item -LiteralPath $depsZip).Length -gt 0) {"
+                .to_string(),
+            "            New-Item -ItemType Directory -Path $depsDir -Force | Out-Null".to_string(),
+            "            & $tarExe -xf $depsZip -C $depsDir".to_string(),
+            "            $x64Dir = Join-Path $depsDir 'x64'".to_string(),
+            "            $searchDir = if (Test-Path -LiteralPath $x64Dir) { $x64Dir } else { $depsDir }"
+                .to_string(),
+            "            $depPaths = @(Get-ChildItem -LiteralPath $searchDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.appx', '.msix') } | Select-Object -ExpandProperty FullName)"
+                .to_string(),
+            "        }".to_string(),
+            "        if ($depPaths.Count -gt 0) {".to_string(),
+            "            Add-AppxPackage -Path $bundlePath -DependencyPath $depPaths -ErrorAction Stop"
+                .to_string(),
+            "        } else {".to_string(),
+            "            Add-AppxPackage -Path $bundlePath -ErrorAction Stop".to_string(),
+            "        }".to_string(),
+            "        Start-Sleep -Seconds 2".to_string(),
+            "        $wgVer = (& winget --version 2>&1 | Select-Object -First 1)".to_string(),
+            "        Write-Log ('AppInstaller updated: ' + $wgVer)".to_string(),
+            "    } else {".to_string(),
+            "        Write-Log ('Skipping AppInstaller update: download failed (exit ' + $bundleExit + ')')"
+                .to_string(),
+            "    }".to_string(),
+            "} catch {".to_string(),
+            "    Write-Log ('AppInstaller update note: ' + $_.Exception.Message)".to_string(),
+            "} finally {".to_string(),
+            "    if (Test-Path -LiteralPath $wingetTmp) {".to_string(),
+            "        Remove-Item -LiteralPath $wingetTmp -Recurse -Force -ErrorAction SilentlyContinue"
+                .to_string(),
+            "    }".to_string(),
+            "}".to_string(),
+        ]);
+    }
+
     for (idx, item) in active {
         match item.kind {
             PostSetupItemKind::Winget => {
                 let id = item.winget_id.as_deref().unwrap_or("").trim();
                 let source_flag = match item.winget_source {
-                    WingetSource::Winget => String::new(),
+                    WingetSource::Winget => " --source winget".to_string(),
                     WingetSource::Msstore => " --source msstore".to_string(),
                 };
                 let scope_flag = match item.winget_scope {
@@ -533,9 +592,12 @@ pub fn generate_first_logon_ps1(plan: &PostSetupBuildPlan) -> Option<String> {
                     format!("Write-Log ('Running: ' + {cmd_desc})"),
                     "try {".to_string(),
                     format!(
-                        "    & winget install --id {} --exact --silent --accept-package-agreements --accept-source-agreements{source_flag}{scope_flag}{extra_flag} *>> $logFile",
+                        "    $wingetOut = & winget install --id {} --exact --silent --accept-package-agreements --accept-source-agreements{source_flag}{scope_flag}{extra_flag} 2>&1",
                         ps_single_quote(id)
                     ),
+                    "    $wingetExit = $LASTEXITCODE".to_string(),
+                    "    $wingetOut | ForEach-Object { $_.ToString() } | Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^\\s*[-\\\\|/]\\s*$' -and $_ -notmatch '[\\u2580-\\u259F]{3,}' } | Add-Content -LiteralPath $logFile -Encoding UTF8".to_string(),
+                    "    Write-Log ('Winget exit code: ' + $wingetExit)".to_string(),
                     "} catch {".to_string(),
                     "    Write-Log ('Winget error: ' + $_.Exception.Message)".to_string(),
                     "}".to_string(),
@@ -1308,12 +1370,70 @@ mod tests {
 
         let first_ps1 = generate_first_logon_ps1(&plan).unwrap();
         assert!(first_ps1.starts_with('\u{feff}'));
+        assert!(first_ps1.contains("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8"));
         assert!(first_ps1.contains("002_установщик.exe"));
         assert!(first_ps1.contains("winget install --id '7zip.7zip' --exact --silent"));
+        assert!(first_ps1.contains("--source winget"));
         assert!(first_ps1.contains("--scope machine"));
+        assert!(!first_ps1.contains("aka.ms/getwinget"));
+        assert!(!first_ps1.contains("*>> $logFile"));
+        assert!(first_ps1.contains("Winget exit code:"));
         assert!(first_ps1.contains("Remove-Item -LiteralPath $payloadDir"));
+        assert!(format_winget_command(&plan.items[2]).contains("--source winget"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn emits_appinstaller_update_only_when_msstore_item_enabled() {
+        let disabled_plan = PostSetupBuildPlan {
+            items: vec![PostSetupItem {
+                id: "1".into(),
+                kind: PostSetupItemKind::Winget,
+                phase: PostSetupPhase::FirstLogon,
+                enabled: false,
+                source_path: None,
+                args: String::new(),
+                winget_id: Some("9NKSQGP7F2NH".into()),
+                display_name: Some("WhatsApp".into()),
+                winget_source: WingetSource::Msstore,
+                winget_scope: WingetScope::Default,
+            }],
+            first_logon_mode: FirstLogonMode::RunOnce,
+            cleanup_temp_files: true,
+            wait_for_network: true,
+        };
+        assert!(generate_first_logon_ps1(&disabled_plan).is_none());
+
+        let enabled_plan = PostSetupBuildPlan {
+            items: vec![PostSetupItem {
+                id: "1".into(),
+                kind: PostSetupItemKind::Winget,
+                phase: PostSetupPhase::FirstLogon,
+                enabled: true,
+                source_path: None,
+                args: String::new(),
+                winget_id: Some("9NKSQGP7F2NH".into()),
+                display_name: Some("WhatsApp".into()),
+                winget_source: WingetSource::Msstore,
+                winget_scope: WingetScope::Default,
+            }],
+            first_logon_mode: FirstLogonMode::RunOnce,
+            cleanup_temp_files: true,
+            wait_for_network: true,
+        };
+        let ps1 = generate_first_logon_ps1(&enabled_plan).unwrap();
+        let update_pos = ps1
+            .find("https://aka.ms/getwinget")
+            .expect("expected aka.ms/getwinget download");
+        let install_pos = ps1
+            .find("winget install --id '9NKSQGP7F2NH'")
+            .expect("expected msstore winget install");
+        assert!(update_pos < install_pos);
+        assert!(ps1.contains("https://aka.ms/getwingetdependencies"));
+        assert!(ps1.contains("Add-AppxPackage"));
+        assert!(ps1.contains("-DependencyPath"));
+        assert!(ps1.contains("--source msstore"));
     }
 
     #[test]

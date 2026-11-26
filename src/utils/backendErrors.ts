@@ -94,6 +94,12 @@ const EXACT_BACKEND_ERRORS: Record<
     i18n.t("backendErrors.postSetupWingetPhase"),
   "Post-Setup FirstLogonCommands (autounattend.xml) requires ISO output target.": () =>
     i18n.t("backendErrors.postSetupAutounattendRequiresIso"),
+  "curl.exe not found on this Windows installation.": () =>
+    i18n.t("backendErrors.curlNotFound"),
+  "tar.exe not found on this Windows installation.": () =>
+    i18n.t("backendErrors.tarNotFound"),
+  "winsqlite3.dll not found on this Windows installation.": () =>
+    i18n.t("backendErrors.winsqliteNotFound"),
 };
 
 const EXACT_DISM_HINTS: Record<string, () => string> = {
@@ -227,6 +233,22 @@ const REGEX_BACKEND_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [
     /^Microsoft Update Catalog search failed \(exit (-?\d+)\): ([\s\S]*)$/,
     (m) => i18n.t("backendErrors.catalogSearchFailed", { code: m[1], details: m[2] }),
+  ],
+  [
+    /^Failed downloading Winget index \(exit (-?\d+)\): ([\s\S]*)$/,
+    (m) =>
+      i18n.t("backendErrors.wingetIndexDownloadFailed", {
+        code: m[1],
+        details: m[2],
+      }),
+  ],
+  [
+    /^Microsoft Store search failed \(exit (-?\d+)\): ([\s\S]*)$/,
+    (m) =>
+      i18n.t("backendErrors.msstoreSearchFailed", {
+        code: m[1],
+        details: m[2],
+      }),
   ],
   [
     /^Failed resolving catalog download links for ([^ ]+) \(exit (-?\d+)\): ([\s\S]*)$/,

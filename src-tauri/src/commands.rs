@@ -11,8 +11,8 @@ use isocraft_core::drivers::{
 use isocraft_core::env::{
     EnvironmentStatus, WorkspaceStorageStats, check_environment_status,
     clear_workspace_storage as core_clear_workspace_storage, compute_workspace_storage_stats,
-    find_bundled_or_path, find_curl, find_dism, find_explorer, find_pnputil,
-    is_trusted_oscdimg_path, strip_windows_verbatim_prefix,
+    find_bundled_or_path, find_curl, find_dism, find_explorer, find_pnputil, find_tar,
+    find_winsqlite3, is_trusted_oscdimg_path, strip_windows_verbatim_prefix,
 };
 use isocraft_core::files::{FileScanResult, scan_custom_file_path as core_scan_custom_file_path};
 use isocraft_core::image::{
@@ -23,7 +23,7 @@ use isocraft_core::iso::{
 };
 use isocraft_core::logger::{LogEntry, SessionLogger};
 use isocraft_core::post_setup::{
-    PostSetupBuildPlan, PostSetupFileScanResult, PostSetupPreview,
+    PostSetupBuildPlan, PostSetupFileScanResult, PostSetupPreview, WingetSource,
     preview_post_setup_scripts as core_preview_post_setup,
     scan_post_setup_file as core_scan_post_setup_file,
 };
@@ -42,6 +42,9 @@ use isocraft_core::updates::{
     search_microsoft_catalog as core_search_microsoft_catalog,
 };
 use isocraft_core::wim::{read_workspace_state_status, recover_workspace_async};
+use isocraft_core::winget_catalog::{
+    DEFAULT_SEARCH_LIMIT, WingetSearchResponse, search_winget_catalog as core_search_winget_catalog,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -630,6 +633,61 @@ pub(crate) async fn preview_post_setup(
     })
     .await
     .map_err(|e| format!("Post-Setup preview task failed: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn search_winget_packages(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    query: String,
+    source: WingetSource,
+    force_refresh: Option<bool>,
+    limit: Option<usize>,
+) -> Result<WingetSearchResponse, String> {
+    let curl_path = find_curl()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "curl.exe not found on this Windows installation.".to_string())?;
+    let tar_path = find_tar()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "tar.exe not found on this Windows installation.".to_string())?;
+    let winsqlite_path = find_winsqlite3()
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "winsqlite3.dll not found on this Windows installation.".to_string())?;
+
+    let workspace_dir = state
+        .settings
+        .lock()
+        .map_err(|_| "Settings lock poisoned".to_string())?
+        .workspace_dir
+        .clone();
+    let workspace_path = PathBuf::from(workspace_dir);
+
+    let res = core_search_winget_catalog(
+        &curl_path,
+        &tar_path,
+        &winsqlite_path,
+        &workspace_path,
+        &query,
+        source,
+        force_refresh.unwrap_or(false),
+        limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
+        &state.winget_index_lock,
+        |msg| log_and_emit(&state, &app, "info", msg),
+    )
+    .await;
+
+    if let Err(ref e) = res {
+        log_and_emit(
+            &state,
+            &app,
+            "error",
+            format!("Winget catalog search failed: {e}"),
+        );
+    }
+    res
 }
 
 #[tauri::command]

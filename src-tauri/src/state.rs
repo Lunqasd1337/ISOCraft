@@ -21,6 +21,7 @@ pub struct AppState {
     pub settings: Mutex<AppSettings>,
     pub logger: SessionLogger,
     pub process_guard: ProcessGuard,
+    pub winget_index_lock: std::sync::Arc<tokio::sync::RwLock<()>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

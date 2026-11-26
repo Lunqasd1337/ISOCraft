@@ -463,7 +463,7 @@ pub fn parse_catalog_search_html(html: &str, only_win11_x64: bool) -> Vec<Catalo
     entries
 }
 
-fn is_allowed_microsoft_host(url: &str) -> bool {
+pub fn is_allowed_microsoft_host(url: &str) -> bool {
     if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return false;
     }
