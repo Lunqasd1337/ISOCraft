@@ -45,8 +45,18 @@ pub fn run() {
                 .min_inner_size(920.0, 620.0)
                 .decorations(false)
                 .center()
+                .enable_clipboard_access()
                 .data_directory(webview_dir)
                 .build()?;
+
+            #[cfg(windows)]
+            let _ = window.with_webview(|webview| unsafe {
+                if let Ok(core) = webview.controller().CoreWebView2()
+                    && let Ok(settings) = core.Settings()
+                {
+                    let _ = settings.SetAreDefaultContextMenusEnabled(false);
+                }
+            });
 
             if init_maximized {
                 let _ = window.maximize();

@@ -34,6 +34,7 @@ async function loadFrontendModules() {
         export * as win11Version from "./src/utils/win11Version";
         export * as format from "./src/utils/format";
         export * as backendErrors from "./src/utils/backendErrors";
+        export * as contextMenu from "./src/utils/contextMenu";
         export { default as i18n } from "./src/i18n";
       `,
       resolveDir: rootDir,
@@ -93,7 +94,14 @@ async function loadFrontendModules() {
 }
 
 const { mod, mockDocument } = await loadFrontendModules();
-const { destinationValidation, win11Version, format, backendErrors, i18n } = mod;
+const {
+  destinationValidation,
+  win11Version,
+  format,
+  backendErrors,
+  contextMenu,
+  i18n,
+} = mod;
 
 let passed = 0;
 function test(name, fn) {
@@ -488,6 +496,200 @@ test("syncVersion.syncVersionFiles & checkVersionFiles synchronize all 7 project
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test("contextMenu.isTextEditableInputType accepts text inputs and rejects non-text inputs", () => {
+  for (const type of ["", "text", "TEXT", "search", "url", "tel", "email", "password", "number", null, undefined]) {
+    assert.equal(contextMenu.isTextEditableInputType(type), true, `Expected editable for ${String(type)}`);
+  }
+  for (const type of ["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "hidden"]) {
+    assert.equal(contextMenu.isTextEditableInputType(type), false, `Expected non-editable for ${type}`);
+  }
+});
+
+test("contextMenu.buildContextMenuItems builds expected items across all snapshot kinds", () => {
+  const editableNoRedo = contextMenu.buildContextMenuItems({
+    kind: "editable",
+    canUndo: true,
+    canRedo: false,
+    hasSelection: true,
+    hasValue: true,
+    isAllSelected: false,
+    isPassword: false,
+    canSelectContainer: false,
+  });
+  assert.deepEqual(
+    editableNoRedo.map((i) => (i.type === "action" ? [i.id, i.disabled] : i.type)),
+    [
+      ["undo", false],
+      "separator",
+      ["cut", false],
+      ["copy", false],
+      ["paste", false],
+      ["delete", false],
+      "separator",
+      ["selectAll", false],
+    ]
+  );
+
+  const editableWithRedoPassword = contextMenu.buildContextMenuItems({
+    kind: "editable",
+    canUndo: false,
+    canRedo: true,
+    hasSelection: true,
+    hasValue: true,
+    isAllSelected: true,
+    isPassword: true,
+    canSelectContainer: false,
+  });
+  assert.deepEqual(
+    editableWithRedoPassword.map((i) => (i.type === "action" ? [i.id, i.disabled] : i.type)),
+    [
+      ["undo", true],
+      ["redo", false],
+      "separator",
+      ["cut", true],
+      ["copy", true],
+      ["paste", false],
+      ["delete", false],
+      "separator",
+      ["selectAll", true],
+    ]
+  );
+
+  assert.deepEqual(
+    contextMenu.buildContextMenuItems({
+      kind: "readonly-input",
+      canUndo: false,
+      canRedo: false,
+      hasSelection: false,
+      hasValue: false,
+      isAllSelected: false,
+      isPassword: false,
+      canSelectContainer: false,
+    }),
+    []
+  );
+
+  assert.deepEqual(
+    contextMenu.buildContextMenuItems({
+      kind: "readonly-input",
+      canUndo: false,
+      canRedo: false,
+      hasSelection: true,
+      hasValue: true,
+      isAllSelected: false,
+      isPassword: false,
+      canSelectContainer: false,
+    }).map((i) => [i.id, i.disabled]),
+    [
+      ["copy", false],
+      ["selectAll", false],
+    ]
+  );
+
+  assert.deepEqual(
+    contextMenu.buildContextMenuItems({
+      kind: "selection",
+      canUndo: false,
+      canRedo: false,
+      hasSelection: true,
+      hasValue: true,
+      isAllSelected: false,
+      isPassword: false,
+      canSelectContainer: true,
+    }).map((i) => [i.id, i.disabled]),
+    [
+      ["copy", false],
+      ["selectAll", false],
+    ]
+  );
+
+  assert.deepEqual(
+    contextMenu.buildContextMenuItems({
+      kind: "selectable",
+      canUndo: false,
+      canRedo: false,
+      hasSelection: false,
+      hasValue: true,
+      isAllSelected: false,
+      isPassword: false,
+      canSelectContainer: true,
+    }).map((i) => [i.id, i.disabled]),
+    [
+      ["copy", true],
+      ["selectAll", false],
+    ]
+  );
+});
+
+test("contextMenu.shouldBlockBrowserShortcut blocks dangerous shortcuts across layouts and preserves editing shortcuts", () => {
+  const base = { key: "", code: "", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false };
+  // Blocked in both dev & prod (including Russian keyboard layout via e.code)
+  for (const ev of [
+    { ...base, key: "F5", code: "F5" },
+    { ...base, key: "r", code: "KeyR", ctrlKey: true },
+    { ...base, key: "к", code: "KeyR", ctrlKey: true },
+    { ...base, key: "R", code: "KeyR", ctrlKey: true, shiftKey: true },
+    { ...base, key: "p", code: "KeyP", ctrlKey: true },
+    { ...base, key: "s", code: "KeyS", ctrlKey: true },
+    { ...base, key: "u", code: "KeyU", ctrlKey: true },
+    { ...base, key: "ArrowLeft", code: "ArrowLeft", altKey: true },
+    { ...base, key: "ArrowRight", code: "ArrowRight", altKey: true },
+    { ...base, key: "F7", code: "F7" },
+  ]) {
+    assert.equal(contextMenu.shouldBlockBrowserShortcut(ev, true), true);
+    assert.equal(contextMenu.shouldBlockBrowserShortcut(ev, false), true);
+  }
+
+  // DevTools blocked only in prod
+  for (const ev of [
+    { ...base, key: "F12", code: "F12" },
+    { ...base, key: "I", code: "KeyI", ctrlKey: true, shiftKey: true },
+    { ...base, key: "J", code: "KeyJ", ctrlKey: true, shiftKey: true },
+    { ...base, key: "C", code: "KeyC", ctrlKey: true, shiftKey: true },
+  ]) {
+    assert.equal(contextMenu.shouldBlockBrowserShortcut(ev, true), false);
+    assert.equal(contextMenu.shouldBlockBrowserShortcut(ev, false), true);
+  }
+
+  // Safe editing and AltGr combinations are preserved
+  for (const ev of [
+    { ...base, key: "c", code: "KeyC", ctrlKey: true },
+    { ...base, key: "v", code: "KeyV", ctrlKey: true },
+    { ...base, key: "x", code: "KeyX", ctrlKey: true },
+    { ...base, key: "a", code: "KeyA", ctrlKey: true },
+    { ...base, key: "z", code: "KeyZ", ctrlKey: true },
+    { ...base, key: "y", code: "KeyY", ctrlKey: true },
+    { ...base, key: "r", code: "KeyR", ctrlKey: true, altKey: true },
+  ]) {
+    assert.equal(contextMenu.shouldBlockBrowserShortcut(ev, false), false);
+  }
+});
+
+test("contextMenu.clampMenuPosition places, flips, and clamps menu coordinates within viewport", () => {
+  assert.deepEqual(contextMenu.clampMenuPosition(100, 120, 200, 180, 1280, 800), {
+    left: 100,
+    top: 120,
+    originX: "left",
+    originY: "top",
+  });
+
+  // Flips left and up near bottom-right corner
+  assert.deepEqual(contextMenu.clampMenuPosition(1250, 780, 200, 180, 1280, 800), {
+    left: 1050,
+    top: 600,
+    originX: "right",
+    originY: "bottom",
+  });
+
+  // Clamps inside small viewport when flip cannot fit
+  assert.deepEqual(contextMenu.clampMenuPosition(50, 40, 200, 180, 220, 190), {
+    left: 12,
+    top: 8,
+    originX: "left",
+    originY: "top",
+  });
 });
 
 console.log(`Frontend unit tests passed: ${passed} suites.`);

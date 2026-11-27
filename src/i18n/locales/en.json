@@ -811,5 +811,15 @@
     "regLinkNotAllowed": "REG_LINK (hex(6)) values are not allowed in offline registry files.",
     "failedReadFile": "Failed reading '{{path}}': {{details}}",
     "previewTruncated": "Preview truncated to first {{limit}} operations (total: {{total}})."
+  },
+  "contextMenu": {
+    "ariaLabel": "Context menu",
+    "undo": "Undo",
+    "redo": "Redo",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "delete": "Delete",
+    "selectAll": "Select All"
   }
 }
