@@ -229,6 +229,7 @@
       "cancel": "Отмена",
       "removeFilteredBtn": "Удалить видимые ({{count}})",
       "resetQueueBtn": "Сбросить очередь",
+      "revertOneBtn": "Сбросить изменение этого приложения",
       "modal": {
         "title": "Добавить AppX / MSIX пакет",
         "packageLabel": "Файл пакета (.appx, .appxbundle, .msix, .msixbundle)",
@@ -287,6 +288,7 @@
       "enableAllLabel": "Включить родительские зависимости (/All)",
       "limitAccessLabel": "Только локальный источник, не обращаться к Windows Update (/LimitAccess)",
       "resetQueueBtn": "Сбросить изменения",
+      "revertOneBtn": "Сбросить изменение этого компонента",
       "noMatches": "Нет компонентов по текущему фильтру."
     },
     "services": {
@@ -304,9 +306,9 @@
       "categoryAll": "Все категории",
       "countSummary": "Показано: {{shown}} из {{total}}",
       "noMatches": "Нет служб по текущему фильтру.",
-      "perUserBadge": "Per-User",
+      "perUserBadge": "На пользователя",
       "perUserTooltip": "Шаблон пользовательской службы (создаётся отдельно для каждого вошедшего пользователя)",
-      "triggerBadge": "Trigger",
+      "triggerBadge": "По триггеру",
       "triggerTooltip": "Служба имеет триггеры запуска Windows (TriggerInfo)",
       "lockedCriticalTooltip": "Критическая системная служба: отключение заблокировано для предотвращения неработоспособности Windows",
       "revertOneBtn": "Сбросить изменение этой службы",

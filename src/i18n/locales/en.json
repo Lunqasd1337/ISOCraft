@@ -226,6 +226,7 @@
       "cancel": "Cancel",
       "removeFilteredBtn": "Remove visible ({{count}})",
       "resetQueueBtn": "Reset queue",
+      "revertOneBtn": "Revert this app change",
       "modal": {
         "title": "Add AppX / MSIX Package",
         "packageLabel": "Package file (.appx, .appxbundle, .msix, .msixbundle)",
@@ -283,6 +284,7 @@
       "enableAllLabel": "Enable parent dependencies (/All)",
       "limitAccessLabel": "Local source only, skip Windows Update (/LimitAccess)",
       "resetQueueBtn": "Reset changes",
+      "revertOneBtn": "Revert this feature change",
       "noMatches": "No features match the current filter."
     },
     "services": {

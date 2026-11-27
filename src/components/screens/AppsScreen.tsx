@@ -308,20 +308,34 @@ export function AppsScreen({
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        disabled={isBuilding}
-                        onClick={() => handleToggleClick(pkg)}
-                        className={`px-3 py-1.5 rounded-md text-[12px] font-semibold border transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 shrink-0 ${
-                          markedForRemoval
-                            ? "bg-surface border-border-subtle text-text-primary hover:bg-subtle"
-                            : "bg-surface border-border-subtle text-status-danger hover:bg-status-danger-bg"
-                        }`}
-                      >
-                        {markedForRemoval
-                          ? t("screens.apps.keepAction")
-                          : t("screens.apps.removeAction")}
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={isBuilding}
+                          onClick={() => handleToggleClick(pkg)}
+                          className={`px-3 py-1.5 rounded-md text-[12px] font-semibold border transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 shrink-0 ${
+                            markedForRemoval
+                              ? "bg-surface border-border-subtle text-text-primary hover:bg-subtle"
+                              : "bg-surface border-border-subtle text-status-danger hover:bg-status-danger-bg"
+                          }`}
+                        >
+                          {markedForRemoval
+                            ? t("screens.apps.keepAction")
+                            : t("screens.apps.removeAction")}
+                        </button>
+                        {markedForRemoval && (
+                          <button
+                            type="button"
+                            disabled={isBuilding}
+                            onClick={() => onToggleRemoveFamily(pkg.packageFamilyName)}
+                            title={t("screens.apps.revertOneBtn")}
+                            aria-label={t("screens.apps.revertOneBtn")}
+                            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface border border-transparent hover:border-border-subtle transition-all duration-150 active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.7} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

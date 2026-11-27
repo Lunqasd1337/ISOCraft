@@ -173,6 +173,50 @@ export function FeaturesScreen({
     });
   };
 
+  const revertFeature = (name: string) => {
+    if (isBuilding) return;
+    onChangeFeaturesQueue((prev) => {
+      const nextOverrides = Object.create(null) as NonNullable<
+        FeaturesQueueState["featureOverrides"]
+      >;
+      if (prev.featureOverrides) {
+        for (const [k, v] of Object.entries(prev.featureOverrides)) {
+          if (k !== name && !UNSAFE_KEYS.has(k)) {
+            nextOverrides[k] = v;
+          }
+        }
+      }
+      return {
+        ...prev,
+        enableFeatures: prev.enableFeatures.filter((n) => n !== name),
+        disableFeatures: prev.disableFeatures.filter((n) => n !== name),
+        featureOverrides: nextOverrides,
+      };
+    });
+  };
+
+  const revertCapability = (name: string) => {
+    if (isBuilding) return;
+    onChangeFeaturesQueue((prev) => {
+      const nextOverrides = Object.create(null) as NonNullable<
+        FeaturesQueueState["capabilityOverrides"]
+      >;
+      if (prev.capabilityOverrides) {
+        for (const [k, v] of Object.entries(prev.capabilityOverrides)) {
+          if (k !== name && !UNSAFE_KEYS.has(k)) {
+            nextOverrides[k] = v;
+          }
+        }
+      }
+      return {
+        ...prev,
+        addCapabilities: prev.addCapabilities.filter((n) => n !== name),
+        removeCapabilities: prev.removeCapabilities.filter((n) => n !== name),
+        capabilityOverrides: nextOverrides,
+      };
+    });
+  };
+
   const updateSxsPath = (nextPath: string | null) => {
     if (isBuilding) return;
     onChangeFeaturesQueue((prev) => ({
@@ -497,12 +541,26 @@ export function FeaturesScreen({
                         </div>
                       </div>
 
-                      <FluentSwitch
-                        checked={effectiveOn}
-                        disabled={isBuilding}
-                        label={feat.name}
-                        onToggle={() => toggleFeature(feat.name, baseOn)}
-                      />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <FluentSwitch
+                          checked={effectiveOn}
+                          disabled={isBuilding}
+                          label={feat.name}
+                          onToggle={() => toggleFeature(feat.name, baseOn)}
+                        />
+                        {changed && (
+                          <button
+                            type="button"
+                            disabled={isBuilding}
+                            onClick={() => revertFeature(feat.name)}
+                            title={t("screens.features.revertOneBtn")}
+                            aria-label={t("screens.features.revertOneBtn")}
+                            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface border border-transparent hover:border-border-subtle transition-all duration-150 active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.7} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -559,12 +617,26 @@ export function FeaturesScreen({
                       </div>
                     </div>
 
-                    <FluentSwitch
-                      checked={effectiveOn}
-                      disabled={isBuilding}
-                      label={cap.name}
-                      onToggle={() => toggleCapability(cap.name, baseOn)}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FluentSwitch
+                        checked={effectiveOn}
+                        disabled={isBuilding}
+                        label={cap.name}
+                        onToggle={() => toggleCapability(cap.name, baseOn)}
+                      />
+                      {changed && (
+                        <button
+                          type="button"
+                          disabled={isBuilding}
+                          onClick={() => revertCapability(cap.name)}
+                          title={t("screens.features.revertOneBtn")}
+                          aria-label={t("screens.features.revertOneBtn")}
+                          className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface border border-transparent hover:border-border-subtle transition-all duration-150 active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.7} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
