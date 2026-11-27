@@ -13,6 +13,7 @@ pub mod preset;
 pub mod process;
 pub mod reg_parser;
 pub mod registry;
+pub mod services;
 pub mod settings;
 pub mod update_catalog;
 pub mod updates;

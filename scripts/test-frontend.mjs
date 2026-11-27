@@ -386,6 +386,22 @@ test("backendErrors.localizeBackendError and localizeXmlError translate known st
     ),
     i18n.t("backendErrors.postSetupAutounattendRequiresIso")
   );
+
+  // Offline Services Manager backend errors (RU and EN)
+  i18n.changeLanguage("ru");
+  assert.equal(
+    backendErrors.localizeBackendError("Critical system service 'RpcSs' cannot be disabled."),
+    i18n.t("backendErrors.serviceCriticalLocked", { name: "RpcSs" })
+  );
+  assert.equal(
+    backendErrors.localizeBackendError("Duplicate service entry 'DiagTrack' in services plan."),
+    i18n.t("backendErrors.serviceDuplicateEntry", { name: "DiagTrack" })
+  );
+  i18n.changeLanguage("en");
+  assert.equal(
+    backendErrors.localizeBackendError("Invalid service name 'bad\\svc'."),
+    i18n.t("backendErrors.serviceInvalidName", { name: "bad\\svc" })
+  );
 });
 
 test("syncVersion.normalizeVersion & bumpSemver handle valid/invalid versions", () => {

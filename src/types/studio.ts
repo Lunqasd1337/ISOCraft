@@ -2,6 +2,7 @@ export type SectionId =
   | "image"
   | "apps"
   | "features"
+  | "services"
   | "updates"
   | "drivers"
   | "registry"
@@ -128,6 +129,51 @@ export interface WindowsCapabilityInfo {
   state: string;
 }
 
+export type ServiceStartType =
+  | "automatic"
+  | "delayedAuto"
+  | "manual"
+  | "disabled";
+
+export type ServiceRiskLevel = "safe" | "medium" | "high" | "critical";
+
+export type ServiceCategory =
+  | "core"
+  | "security"
+  | "network"
+  | "updates"
+  | "telemetry"
+  | "devices"
+  | "gaming"
+  | "enterprise"
+  | "other";
+
+export interface WindowsServiceInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  startType: ServiceStartType;
+  serviceType: number;
+  isPerUserTemplate: boolean;
+  hasTriggerStart: boolean;
+  group: string;
+  dependsOn: string[];
+  requiredBy: string[];
+  riskLevel: ServiceRiskLevel;
+  category: ServiceCategory;
+  isLockedCritical: boolean;
+  protectionReason: string | null;
+}
+
+export interface ServiceStartChange {
+  name: string;
+  startType: ServiceStartType;
+}
+
+export interface ServicesQueueState {
+  changes: ServiceStartChange[];
+}
+
 export interface ImageCatalog {
   sourcePath: string;
   editionIndex: number;
@@ -136,6 +182,7 @@ export interface ImageCatalog {
   features: WindowsFeatureInfo[];
   capabilities: WindowsCapabilityInfo[];
   drivers: InstalledDriverInfo[];
+  services?: WindowsServiceInfo[];
 }
 
 export interface FeatureEnableItem {
@@ -481,6 +528,7 @@ export interface StudioPreset {
     capabilitiesRemove: string[];
     defaultSxsPath: string | null;
   };
+  services?: ServicesQueueState;
   updates: {
     items: { path: string; isDirectory: boolean }[];
     runComponentCleanup: boolean;
@@ -567,6 +615,7 @@ export interface BuildConfig {
     capabilitiesRemove: string[];
     defaultSxsPath: string | null;
   };
+  services: ServicesQueueState;
   updates: {
     items: { path: string; isDirectory: boolean }[];
     runComponentCleanup: boolean;

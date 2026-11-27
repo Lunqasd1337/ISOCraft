@@ -1,6 +1,10 @@
 use crate::fs_utils::read_file_bounded;
 use crate::image::decode_text_bytes;
 use crate::reg_parser::{OfflineHive, ParsedOpKind, ParsedRegFile, ParsedRegOp, parse_reg_content};
+use crate::services::{
+    RawOfflineService, ServiceApplyReport, ServiceStartChange, ServiceStartType, ServicesBuildPlan,
+    is_manageable_win32_service_type, validate_services_plan,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -65,9 +69,10 @@ mod win32_impl {
     };
     use windows::Win32::System::Registry::{
         HKEY, HKEY_LOCAL_MACHINE, KEY_ENUMERATE_SUB_KEYS, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE,
-        KEY_WRITE, REG_DWORD, REG_OPEN_CREATE_OPTIONS, REG_OPTION_BACKUP_RESTORE, REG_SAM_FLAGS,
-        REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegEnumKeyExW, RegFlushKey,
-        RegLoadKeyW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, RegUnLoadKeyW,
+        KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_MULTI_SZ, REG_OPEN_CREATE_OPTIONS,
+        REG_OPTION_BACKUP_RESTORE, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE, RegCloseKey,
+        RegCreateKeyExW, RegDeleteValueW, RegEnumKeyExW, RegFlushKey, RegLoadKeyW, RegOpenKeyExW,
+        RegQueryValueExW, RegSetValueExW, RegUnLoadKeyW,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows::core::{PCWSTR, PWSTR};
@@ -177,7 +182,7 @@ mod win32_impl {
 
     struct LoadedHiveSession {
         workspace_dir: PathBuf,
-        loaded: Vec<(OfflineHive, String)>,
+        loaded: Vec<(Option<OfflineHive>, String, String)>,
     }
 
     impl LoadedHiveSession {
@@ -191,24 +196,21 @@ mod win32_impl {
         fn temp_key_for(&self, hive: OfflineHive) -> Option<&str> {
             self.loaded
                 .iter()
-                .find(|(h, _)| *h == hive)
-                .map(|(_, k)| k.as_str())
+                .find(|(h, _, _)| *h == Some(hive))
+                .map(|(_, _, k)| k.as_str())
         }
 
-        fn load_hive<F>(
+        fn load_hive_file<F>(
             &mut self,
-            hive: OfflineHive,
-            mount_dir: &Path,
-            mut on_log: F,
+            hive_tag: Option<OfflineHive>,
+            hive_label: &str,
+            temp_suffix: &str,
+            hive_file: &Path,
+            on_log: &mut F,
         ) -> Result<String, String>
         where
             F: FnMut(&str),
         {
-            if let Some(existing) = self.temp_key_for(hive) {
-                return Ok(existing.to_string());
-            }
-
-            let hive_file = mount_dir.join(hive.relative_hive_path());
             if !hive_file.is_file() {
                 return Err(format!(
                     "Offline registry hive file missing: {}",
@@ -216,7 +218,7 @@ mod win32_impl {
                 ));
             }
 
-            let temp_name = format!("ISOCRAFT_{}_{}", std::process::id(), hive.temp_suffix());
+            let temp_name = format!("ISOCRAFT_{}_{}", std::process::id(), temp_suffix);
             register_hive_in_state(&self.workspace_dir, &temp_name)?;
 
             let sub_w = to_wide_null(&temp_name);
@@ -233,18 +235,41 @@ mod win32_impl {
                 let _ = unregister_hive_in_state(&self.workspace_dir, &temp_name);
                 return Err(format!(
                     "RegLoadKeyW failed for '{}' at '{}': WIN32_ERROR({})",
-                    hive.label(),
+                    hive_label,
                     hive_file.display(),
                     err.0
                 ));
             }
 
             on_log(&format!(
-                "Loaded offline hive {} -> HKLM\\{temp_name}",
-                hive.label()
+                "Loaded offline hive {hive_label} -> HKLM\\{temp_name}"
             ));
-            self.loaded.push((hive, temp_name.clone()));
+            self.loaded
+                .push((hive_tag, hive_label.to_string(), temp_name.clone()));
             Ok(temp_name)
+        }
+
+        fn load_hive<F>(
+            &mut self,
+            hive: OfflineHive,
+            mount_dir: &Path,
+            mut on_log: F,
+        ) -> Result<String, String>
+        where
+            F: FnMut(&str),
+        {
+            if let Some(existing) = self.temp_key_for(hive) {
+                return Ok(existing.to_string());
+            }
+
+            let hive_file = mount_dir.join(hive.relative_hive_path());
+            self.load_hive_file(
+                Some(hive),
+                hive.label(),
+                hive.temp_suffix(),
+                &hive_file,
+                &mut on_log,
+            )
         }
 
         fn unload_all<F>(&mut self, mut on_log: F) -> Result<(), String>
@@ -252,7 +277,7 @@ mod win32_impl {
             F: FnMut(&str),
         {
             let mut first_err: Option<String> = None;
-            while let Some((hive, temp_name)) = self.loaded.pop() {
+            while let Some((_hive, hive_label, temp_name)) = self.loaded.pop() {
                 let name_w = to_wide_null(&temp_name);
                 // Flush before unloading
                 let mut hkey = HKEY::default();
@@ -279,13 +304,11 @@ mod win32_impl {
                 {
                     let _ = unregister_hive_in_state(&self.workspace_dir, &temp_name);
                     on_log(&format!(
-                        "Unloaded offline hive {} (HKLM\\{temp_name})",
-                        hive.label()
+                        "Unloaded offline hive {hive_label} (HKLM\\{temp_name})"
                     ));
                 } else if first_err.is_none() {
                     first_err = Some(format!(
-                        "RegUnLoadKeyW failed for '{}' (HKLM\\{temp_name}): WIN32_ERROR({})",
-                        hive.label(),
+                        "RegUnLoadKeyW failed for '{hive_label}' (HKLM\\{temp_name}): WIN32_ERROR({})",
                         err.0
                     ));
                 }
@@ -857,12 +880,424 @@ mod win32_impl {
         unload_res?;
         Ok(())
     }
+
+    fn query_dword_value(hkey: HKEY, name: &str) -> Option<u32> {
+        let val_w = to_wide_null(name);
+        let mut reg_type = REG_VALUE_TYPE(0);
+        let mut buf = [0u8; 4];
+        let mut size = 4u32;
+        let qerr = unsafe {
+            RegQueryValueExW(
+                hkey,
+                PCWSTR(val_w.as_ptr()),
+                None,
+                Some(&mut reg_type),
+                Some(buf.as_mut_ptr()),
+                Some(&mut size),
+            )
+        };
+        if qerr == ERROR_SUCCESS && reg_type == REG_DWORD && size == 4 {
+            Some(u32::from_le_bytes(buf))
+        } else {
+            None
+        }
+    }
+
+    fn query_raw_value_bytes(hkey: HKEY, name: &str) -> Option<(REG_VALUE_TYPE, Vec<u8>)> {
+        const MAX_SERVICE_VAL_BYTES: u32 = 256 * 1024;
+        let val_w = to_wide_null(name);
+        let mut reg_type = REG_VALUE_TYPE(0);
+        let mut size = 0u32;
+        let qerr = unsafe {
+            RegQueryValueExW(
+                hkey,
+                PCWSTR(val_w.as_ptr()),
+                None,
+                Some(&mut reg_type),
+                None,
+                Some(&mut size),
+            )
+        };
+        if qerr != ERROR_SUCCESS || size == 0 || size > MAX_SERVICE_VAL_BYTES {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        let mut actual_size = size;
+        let qerr2 = unsafe {
+            RegQueryValueExW(
+                hkey,
+                PCWSTR(val_w.as_ptr()),
+                None,
+                Some(&mut reg_type),
+                Some(buf.as_mut_ptr()),
+                Some(&mut actual_size),
+            )
+        };
+        if qerr2 != ERROR_SUCCESS {
+            return None;
+        }
+        buf.truncate(actual_size as usize);
+        Some((reg_type, buf))
+    }
+
+    fn query_string_value(hkey: HKEY, name: &str) -> Option<String> {
+        let (reg_type, bytes) = query_raw_value_bytes(hkey, name)?;
+        if reg_type != REG_SZ && reg_type != REG_EXPAND_SZ {
+            return None;
+        }
+        let units: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
+            .take_while(|&u| u != 0)
+            .collect();
+        let s = String::from_utf16_lossy(&units).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    }
+
+    fn query_multi_sz_value(hkey: HKEY, name: &str) -> Vec<String> {
+        let Some((reg_type, bytes)) = query_raw_value_bytes(hkey, name) else {
+            return Vec::new();
+        };
+        if reg_type != REG_MULTI_SZ && reg_type != REG_SZ {
+            return Vec::new();
+        }
+        let units: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
+            .collect();
+        let mut items = Vec::new();
+        let mut start = 0usize;
+        for (idx, &u) in units.iter().enumerate() {
+            if u == 0 {
+                if idx > start {
+                    let s = String::from_utf16_lossy(&units[start..idx])
+                        .trim()
+                        .to_string();
+                    if !s.is_empty() {
+                        items.push(s);
+                    }
+                }
+                start = idx + 1;
+            }
+        }
+        if start < units.len() {
+            let tail = String::from_utf16_lossy(&units[start..]).trim().to_string();
+            if !tail.is_empty() {
+                items.push(tail);
+            }
+        }
+        items
+    }
+
+    fn has_subkey(parent: HKEY, name: &str) -> bool {
+        let sub_w = to_wide_null(name);
+        let mut raw = HKEY::default();
+        let err = unsafe {
+            RegOpenKeyExW(
+                parent,
+                PCWSTR(sub_w.as_ptr()),
+                Some(REG_OPTION_BACKUP_RESTORE.0 | REG_OPTION_OPEN_LINK),
+                KEY_QUERY_VALUE,
+                &mut raw,
+            )
+        };
+        if err == ERROR_SUCCESS && !raw.is_invalid() {
+            let _owned = OwnedHKey(raw);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[allow(clippy::permissions_set_readonly_false)]
+    fn clear_file_readonly(path: &Path) {
+        if let Ok(meta) = std::fs::metadata(path) {
+            let mut perms = meta.permissions();
+            if perms.readonly() {
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(path, perms);
+            }
+        }
+    }
+
+    fn cleanup_temp_system_hive_files(inspect_dir: &Path) {
+        for suffix in ["temp_SYSTEM", "temp_SYSTEM.LOG1", "temp_SYSTEM.LOG2"] {
+            let p = inspect_dir.join(suffix);
+            if p.exists() {
+                clear_file_readonly(&p);
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
+
+    /// Reads Win32 services from a read-only mounted WIM by copying `SYSTEM` (+ logs)
+    /// into `inspect_dir`, clearing ReadOnly, and loading it temporarily with `SeBackupPrivilege`.
+    pub fn read_offline_services_from_mount<F, C>(
+        mount_dir: &Path,
+        inspect_dir: &Path,
+        workspace_dir: &Path,
+        is_cancelled: C,
+        mut on_log: F,
+    ) -> Result<Vec<RawOfflineService>, String>
+    where
+        F: FnMut(&str),
+        C: Fn() -> bool,
+    {
+        let src_system = mount_dir.join(OfflineHive::System.relative_hive_path());
+        if !src_system.is_file() {
+            return Err(format!(
+                "Offline registry hive file missing: {}",
+                src_system.display()
+            ));
+        }
+
+        std::fs::create_dir_all(inspect_dir)
+            .map_err(|e| format!("Failed creating inspect dir: {e}"))?;
+        cleanup_temp_system_hive_files(inspect_dir);
+
+        let dst_system = inspect_dir.join("temp_SYSTEM");
+        std::fs::copy(&src_system, &dst_system)
+            .map_err(|e| format!("Failed copying SYSTEM hive for inspection: {e}"))?;
+        clear_file_readonly(&dst_system);
+
+        for log_ext in ["LOG1", "LOG2"] {
+            let src_log = mount_dir.join(format!(
+                "{}.{}",
+                OfflineHive::System.relative_hive_path(),
+                log_ext
+            ));
+            if src_log.is_file() {
+                let dst_log = inspect_dir.join(format!("temp_SYSTEM.{log_ext}"));
+                if std::fs::copy(&src_log, &dst_log).is_ok() {
+                    clear_file_readonly(&dst_log);
+                }
+            }
+        }
+
+        let read_res: Result<Vec<RawOfflineService>, String> = (|| {
+            enable_backup_restore_privileges()?;
+            let mut session = LoadedHiveSession::new(workspace_dir);
+            let inner: Result<Vec<RawOfflineService>, String> = (|| {
+                if is_cancelled() {
+                    return Err("Operation cancelled by user.".to_string());
+                }
+                let temp_root = session.load_hive_file(
+                    None,
+                    "SYSTEM (RO)",
+                    "SYSTEM_RO",
+                    &dst_system,
+                    &mut on_log,
+                )?;
+                let control_set_name = read_current_control_set_name(&temp_root);
+                let services_subkey = format!("{control_set_name}\\Services");
+
+                let svc_access = REG_SAM_FLAGS(KEY_ENUMERATE_SUB_KEYS.0 | KEY_QUERY_VALUE.0);
+                let Some(services_key) =
+                    open_subkey_no_links(&temp_root, &services_subkey, svc_access)?
+                else {
+                    return Ok(Vec::new());
+                };
+
+                let names = enum_subkeys(services_key.0)?;
+                let mut raw_services = Vec::with_capacity(names.len());
+                for name in names {
+                    if is_cancelled() {
+                        return Err("Operation cancelled by user.".to_string());
+                    }
+                    let trace = format!("{temp_root}\\{services_subkey}\\{name}");
+                    let Ok(Some(entry_key)) = open_single_segment_no_link(
+                        services_key.0,
+                        &name,
+                        KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS,
+                        &trace,
+                    ) else {
+                        continue;
+                    };
+
+                    let Some(service_type) = query_dword_value(entry_key.0, "Type") else {
+                        continue;
+                    };
+                    if !is_manageable_win32_service_type(service_type) {
+                        continue;
+                    }
+                    let Some(start) = query_dword_value(entry_key.0, "Start") else {
+                        continue;
+                    };
+                    let delayed_autostart = query_dword_value(entry_key.0, "DelayedAutostart");
+                    if ServiceStartType::from_registry_values(start, delayed_autostart).is_none() {
+                        continue;
+                    }
+
+                    let display_name = query_string_value(entry_key.0, "DisplayName");
+                    let description = query_string_value(entry_key.0, "Description");
+                    let group = query_string_value(entry_key.0, "Group");
+                    let depends_on = query_multi_sz_value(entry_key.0, "DependOnService");
+                    let has_trigger_start = has_subkey(entry_key.0, "TriggerInfo");
+
+                    raw_services.push(RawOfflineService {
+                        name,
+                        service_type,
+                        start,
+                        delayed_autostart,
+                        display_name,
+                        description,
+                        group,
+                        depends_on,
+                        has_trigger_start,
+                    });
+                }
+                Ok(raw_services)
+            })();
+            let unload_res = session.unload_all(&mut on_log);
+            let data = inner?;
+            unload_res?;
+            Ok(data)
+        })();
+
+        cleanup_temp_system_hive_files(inspect_dir);
+        read_res
+    }
+
+    pub fn apply_service_changes_to_mount_cancellable<F, C>(
+        mount_dir: &Path,
+        workspace_dir: &Path,
+        changes: &[ServiceStartChange],
+        is_cancelled: C,
+        mut on_log: F,
+    ) -> Result<ServiceApplyReport, String>
+    where
+        F: FnMut(&str),
+        C: Fn() -> bool,
+    {
+        if changes.is_empty() {
+            return Ok(ServiceApplyReport::default());
+        }
+        validate_services_plan(&ServicesBuildPlan {
+            changes: changes.to_vec(),
+        })?;
+
+        enable_backup_restore_privileges()?;
+
+        let mut session = LoadedHiveSession::new(workspace_dir);
+        let mut report = ServiceApplyReport::default();
+
+        let apply_res: Result<(), String> = (|| {
+            if is_cancelled() {
+                return Err("Operation cancelled by user.".to_string());
+            }
+            let sys_temp = session.load_hive(OfflineHive::System, mount_dir, &mut on_log)?;
+            let control_set_name = read_current_control_set_name(&sys_temp);
+            on_log(&format!(
+                "Resolved SYSTEM CurrentControlSet -> {control_set_name} (for {} service change(s))",
+                changes.len()
+            ));
+
+            let access = REG_SAM_FLAGS(KEY_QUERY_VALUE.0 | KEY_SET_VALUE.0);
+            for change in changes {
+                if is_cancelled() {
+                    return Err("Operation cancelled by user.".to_string());
+                }
+                let subkey = format!("{control_set_name}\\Services\\{}", change.name);
+                let Some(key) = open_subkey_no_links(&sys_temp, &subkey, access)? else {
+                    on_log(&format!(
+                        "Service '{}' not found in mounted edition; skipping.",
+                        change.name
+                    ));
+                    report.skipped_missing += 1;
+                    continue;
+                };
+
+                let Some(service_type) = query_dword_value(key.0, "Type") else {
+                    on_log(&format!(
+                        "Registry key '{}' has no service Type value; skipping.",
+                        change.name
+                    ));
+                    report.skipped_non_win32 += 1;
+                    continue;
+                };
+                if !is_manageable_win32_service_type(service_type) {
+                    on_log(&format!(
+                        "Entry '{}' is not a manageable Win32 service (Type=0x{service_type:x}); skipping.",
+                        change.name
+                    ));
+                    report.skipped_non_win32 += 1;
+                    continue;
+                }
+
+                let (start_dword, set_delayed) = change.start_type.to_registry_values();
+                let start_w = to_wide_null("Start");
+                let start_bytes = start_dword.to_le_bytes();
+                let err = unsafe {
+                    RegSetValueExW(
+                        key.0,
+                        PCWSTR(start_w.as_ptr()),
+                        Some(0),
+                        REG_DWORD,
+                        Some(&start_bytes),
+                    )
+                };
+                if err != ERROR_SUCCESS {
+                    return Err(format!(
+                        "RegSetValueExW failed for service '{}\\Start': WIN32_ERROR({})",
+                        change.name, err.0
+                    ));
+                }
+
+                let delayed_w = to_wide_null("DelayedAutostart");
+                if set_delayed {
+                    let one_bytes = 1u32.to_le_bytes();
+                    let derr = unsafe {
+                        RegSetValueExW(
+                            key.0,
+                            PCWSTR(delayed_w.as_ptr()),
+                            Some(0),
+                            REG_DWORD,
+                            Some(&one_bytes),
+                        )
+                    };
+                    if derr != ERROR_SUCCESS {
+                        return Err(format!(
+                            "RegSetValueExW failed for service '{}\\DelayedAutostart': WIN32_ERROR({})",
+                            change.name, derr.0
+                        ));
+                    }
+                } else {
+                    let derr = unsafe { RegDeleteValueW(key.0, PCWSTR(delayed_w.as_ptr())) };
+                    if derr != ERROR_SUCCESS && derr != ERROR_FILE_NOT_FOUND {
+                        return Err(format!(
+                            "RegDeleteValueW failed for service '{}\\DelayedAutostart': WIN32_ERROR({})",
+                            change.name, derr.0
+                        ));
+                    }
+                }
+
+                report.applied += 1;
+                on_log(&format!(
+                    "Service '{}' -> {} (Start={start_dword}, DelayedAutostart={set_delayed})",
+                    change.name,
+                    change.start_type.label()
+                ));
+            }
+            Ok(())
+        })();
+
+        // Guarantee loaded SYSTEM hive is closed and unloaded BEFORE unmount_wim runs
+        let unload_res = session.unload_all(&mut on_log);
+        apply_res?;
+        unload_res?;
+        Ok(report)
+    }
 }
 
 #[cfg(windows)]
 pub use win32_impl::{
     apply_reg_files_to_mount, apply_reg_files_to_mount_cancellable,
-    apply_reg_ops_to_mount_cancellable, enable_backup_restore_privileges, unload_hive_by_name,
+    apply_reg_ops_to_mount_cancellable, apply_service_changes_to_mount_cancellable,
+    enable_backup_restore_privileges, read_offline_services_from_mount, unload_hive_by_name,
 };
 
 #[cfg(not(windows))]
@@ -916,6 +1351,36 @@ pub fn apply_reg_files_to_mount_cancellable<F, C>(
     _is_cancelled: C,
     _on_log: F,
 ) -> Result<(), String>
+where
+    F: FnMut(&str),
+    C: Fn() -> bool,
+{
+    Err("Offline registry operations are only supported on Windows.".to_string())
+}
+
+#[cfg(not(windows))]
+pub fn read_offline_services_from_mount<F, C>(
+    _mount_dir: &Path,
+    _inspect_dir: &Path,
+    _workspace_dir: &Path,
+    _is_cancelled: C,
+    _on_log: F,
+) -> Result<Vec<RawOfflineService>, String>
+where
+    F: FnMut(&str),
+    C: Fn() -> bool,
+{
+    Err("Offline registry operations are only supported on Windows.".to_string())
+}
+
+#[cfg(not(windows))]
+pub fn apply_service_changes_to_mount_cancellable<F, C>(
+    _mount_dir: &Path,
+    _workspace_dir: &Path,
+    _changes: &[ServiceStartChange],
+    _is_cancelled: C,
+    _on_log: F,
+) -> Result<ServiceApplyReport, String>
 where
     F: FnMut(&str),
     C: Fn() -> bool,

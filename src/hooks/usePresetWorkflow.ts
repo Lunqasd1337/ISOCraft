@@ -29,6 +29,8 @@ import type {
   RegFilePreview,
   RegQueueItem,
   RegistryQueueState,
+  ServiceStartChange,
+  ServicesQueueState,
   StudioPreset,
   UpdateQueueItem,
   UpdateScanInfo,
@@ -49,6 +51,8 @@ interface UsePresetWorkflowParams {
   setAppsQueue: Dispatch<SetStateAction<AppsQueueState>>;
   featuresQueue: FeaturesQueueState;
   setFeaturesQueue: Dispatch<SetStateAction<FeaturesQueueState>>;
+  servicesQueue: ServicesQueueState;
+  setServicesQueue: Dispatch<SetStateAction<ServicesQueueState>>;
   updatesQueue: UpdatesQueueState;
   setUpdatesQueue: Dispatch<SetStateAction<UpdatesQueueState>>;
   driversQueue: DriversQueueState;
@@ -84,6 +88,8 @@ export function usePresetWorkflow({
   setAppsQueue,
   featuresQueue,
   setFeaturesQueue,
+  servicesQueue,
+  setServicesQueue,
   updatesQueue,
   setUpdatesQueue,
   driversQueue,
@@ -257,6 +263,9 @@ export function usePresetWorkflow({
         }),
         capabilitiesRemove: featuresQueue.removeCapabilities,
         defaultSxsPath: featuresQueue.customSxsPath,
+      },
+      services: {
+        changes: servicesQueue.changes,
       },
       updates: {
         items: updatesQueue.items.map((u) => ({
@@ -586,6 +595,17 @@ export function usePresetWorkflow({
         featureOverrides,
         capabilityOverrides,
       });
+      const seenSvc = new Set<string>();
+      const serviceChanges: ServiceStartChange[] = [];
+      for (const ch of p.services?.changes ?? []) {
+        const cleanName = ch.name?.trim();
+        if (!cleanName) continue;
+        const key = cleanName.toLowerCase();
+        if (seenSvc.has(key)) continue;
+        seenSvc.add(key);
+        serviceChanges.push({ name: cleanName, startType: ch.startType });
+      }
+      setServicesQueue({ changes: serviceChanges });
       setUpdatesQueue({
         items: loadedUpdates,
         runComponentCleanup: p.updates.runComponentCleanup,

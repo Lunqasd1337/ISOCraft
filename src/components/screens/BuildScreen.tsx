@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   CheckCircle2,
+  Cog,
   Cpu,
   Download,
   FileCode2,
@@ -41,6 +42,7 @@ import type {
   PostSetupQueueState,
   RegistryQueueState,
   SectionId,
+  ServicesQueueState,
   UpdatesQueueState,
 } from "../../types/studio";
 
@@ -49,6 +51,7 @@ interface BuildScreenProps {
   selectedIndex: number | null;
   appsQueue: AppsQueueState;
   featuresQueue: FeaturesQueueState;
+  servicesQueue: ServicesQueueState;
   updatesQueue: UpdatesQueueState;
   driversQueue: DriversQueueState;
   registryQueue: RegistryQueueState;
@@ -80,6 +83,7 @@ export function BuildScreen({
   selectedIndex,
   appsQueue,
   featuresQueue,
+  servicesQueue,
   updatesQueue,
   driversQueue,
   registryQueue,
@@ -279,6 +283,24 @@ export function BuildScreen({
       label: t("screens.build.summaryFeatures"),
       icon: SlidersHorizontal,
       summary: featuresSummary,
+    },
+    {
+      id: "services",
+      label: t("screens.build.summaryServices"),
+      icon: Cog,
+      summary: (() => {
+        const total = servicesQueue.changes.length;
+        if (total === 0) return t("screens.build.noQueuedItems");
+        const disabledCount = servicesQueue.changes.filter(
+          (c) => c.startType === "disabled"
+        ).length;
+        const base = t("screens.build.summaryServicesCount", { count: total });
+        return disabledCount > 0
+          ? `${base} • ${t("screens.build.summaryServicesDisabled", {
+              count: disabledCount,
+            })}`
+          : base;
+      })(),
     },
     {
       id: "updates",

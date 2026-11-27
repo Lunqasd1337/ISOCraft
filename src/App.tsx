@@ -20,6 +20,7 @@ import { getBaseName, validateDestinationClient } from "./utils/destinationValid
 import { ImageScreen } from "./components/screens/ImageScreen";
 import { AppsScreen } from "./components/screens/AppsScreen";
 import { FeaturesScreen } from "./components/screens/FeaturesScreen";
+import { ServicesScreen } from "./components/screens/ServicesScreen";
 import { UpdatesScreen } from "./components/screens/UpdatesScreen";
 import { DriversScreen } from "./components/screens/DriversScreen";
 import { RegistryScreen } from "./components/screens/RegistryScreen";
@@ -58,6 +59,7 @@ import type {
   PostSetupQueueState,
   RegistryQueueState,
   SectionId,
+  ServicesQueueState,
   UpdatesQueueState,
 } from "./types/studio";
 
@@ -78,6 +80,10 @@ const EMPTY_FEATURES_QUEUE: FeaturesQueueState = {
   customSxsPath: null,
   featureOverrides: {},
   capabilityOverrides: {},
+};
+
+const EMPTY_SERVICES_QUEUE: ServicesQueueState = {
+  changes: [],
 };
 
 const EMPTY_UPDATES_QUEUE: UpdatesQueueState = {
@@ -161,6 +167,8 @@ export function App() {
   const [appsQueue, setAppsQueue] = useState<AppsQueueState>(EMPTY_APPS_QUEUE);
   const [featuresQueue, setFeaturesQueue] =
     useState<FeaturesQueueState>(EMPTY_FEATURES_QUEUE);
+  const [servicesQueue, setServicesQueue] =
+    useState<ServicesQueueState>(EMPTY_SERVICES_QUEUE);
   const [updatesQueue, setUpdatesQueue] =
     useState<UpdatesQueueState>(EMPTY_UPDATES_QUEUE);
   const [driversQueue, setDriversQueue] =
@@ -217,6 +225,8 @@ export function App() {
     setAppsQueue,
     featuresQueue,
     setFeaturesQueue,
+    servicesQueue,
+    setServicesQueue,
     updatesQueue,
     setUpdatesQueue,
     driversQueue,
@@ -449,6 +459,7 @@ export function App() {
     setCatalogError(null);
     setAppsQueue(EMPTY_APPS_QUEUE);
     setFeaturesQueue(EMPTY_FEATURES_QUEUE);
+    setServicesQueue(EMPTY_SERVICES_QUEUE);
     setUpdatesQueue(EMPTY_UPDATES_QUEUE);
     setDriversQueue(EMPTY_DRIVERS_QUEUE);
     setRegistryQueue(EMPTY_REGISTRY_QUEUE);
@@ -499,6 +510,7 @@ export function App() {
     setSelectedIndex(idx);
     setAppsQueue(EMPTY_APPS_QUEUE);
     setFeaturesQueue(EMPTY_FEATURES_QUEUE);
+    setServicesQueue(EMPTY_SERVICES_QUEUE);
     setDriversQueue((prev) =>
       prev.removePublishedNames.length > 0
         ? { ...prev, removePublishedNames: [] }
@@ -530,6 +542,7 @@ export function App() {
       featuresQueue.disableFeatures.length +
       featuresQueue.addCapabilities.length +
       featuresQueue.removeCapabilities.length +
+      servicesQueue.changes.length +
       driversQueue.removePublishedNames.length;
     if (editionQueuedCount > 0) {
       setPendingResetAction({ kind: "edition", index: idx });
@@ -743,6 +756,9 @@ export function App() {
               capabilitiesRemove: featuresQueue.removeCapabilities,
               defaultSxsPath: featuresQueue.customSxsPath,
             },
+            services: {
+              changes: servicesQueue.changes,
+            },
             updates: {
               items: updatesQueue.items.map((u) => ({
                 path: u.path,
@@ -866,6 +882,10 @@ export function App() {
       featuresQueue.removeCapabilities.length;
     if (featTotal > 0) badges.features = String(featTotal);
 
+    if (servicesQueue.changes.length > 0) {
+      badges.services = String(servicesQueue.changes.length);
+    }
+
     if (updatesQueue.items.length > 0) {
       badges.updates = String(updatesQueue.items.length);
     }
@@ -892,7 +912,7 @@ export function App() {
     }
 
     return badges;
-  }, [appsQueue, driversQueue, featuresQueue, filesQueue, output.target, postSetupQueue, registryQueue, updatesQueue]);
+  }, [appsQueue, driversQueue, featuresQueue, filesQueue, output.target, postSetupQueue, registryQueue, servicesQueue.changes.length, updatesQueue]);
 
   const totalQueuedCount =
     appsQueue.removeFamilies.length +
@@ -901,6 +921,7 @@ export function App() {
     featuresQueue.disableFeatures.length +
     featuresQueue.addCapabilities.length +
     featuresQueue.removeCapabilities.length +
+    servicesQueue.changes.length +
     updatesQueue.items.length +
     (updatesQueue.runComponentCleanup ? 1 : 0) +
     driversQueue.items.length +
@@ -931,6 +952,7 @@ export function App() {
     featuresQueue.disableFeatures.length +
     featuresQueue.addCapabilities.length +
     featuresQueue.removeCapabilities.length +
+    servicesQueue.changes.length +
     driversQueue.removePublishedNames.length;
 
   return (
@@ -1047,6 +1069,15 @@ export function App() {
                 onChangeFeaturesQueue={setFeaturesQueue}
               />
             )}
+            {activeSection === "services" && (
+              <ServicesScreen
+                catalog={catalog}
+                catalogLoading={catalogLoading}
+                isBuilding={isBuilding || recovering || cancellingBuild}
+                servicesQueue={servicesQueue}
+                onChangeServicesQueue={setServicesQueue}
+              />
+            )}
             {activeSection === "updates" && (
               <UpdatesScreen
                 hasValidImage={Boolean(
@@ -1119,6 +1150,7 @@ export function App() {
                 selectedIndex={selectedIndex}
                 appsQueue={appsQueue}
                 featuresQueue={featuresQueue}
+                servicesQueue={servicesQueue}
                 updatesQueue={updatesQueue}
                 driversQueue={driversQueue}
                 registryQueue={registryQueue}

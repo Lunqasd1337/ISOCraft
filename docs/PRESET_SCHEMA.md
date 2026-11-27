@@ -24,6 +24,7 @@
   "meta": {},
   "apps": {},
   "features": {},
+  "services": {},
   "updates": {},
   "drivers": {},
   "registry": {},
@@ -79,7 +80,13 @@
 > [!NOTE]
 > При загрузке пресета в UI (`usePresetWorkflow.ts`) общий путь `customSxsPath` берётся из `defaultSxsPath` (или первого заданного `customSxsPath` среди `enable`/`capabilitiesAdd`), а индивидуальные настройки `enableAll`, `limitAccess` и `customSxsPath` сохраняются в `featureOverrides`/`capabilityOverrides` и воспроизводятся при следующем экспорте и сборке.
 
-### 3.4. `updates` (`UpdatesBuildPlan`)
+### 3.4. `services` (`ServicesBuildPlan`, опциональный раздел)
+
+| Поле | Тип | По умолчанию | Описание |
+| :--- | :--- | :--- | :--- |
+| `changes` | `{ name: string, startType: "automatic" \| "delayedAuto" \| "manual" \| "disabled" }[]` | `[]` | Список изменений типа запуска Win32-служб в `SYSTEM\ControlSetNNN\Services`. Дубликаты имён и отключение заблокированных критических служб отклоняются при импорте и перед сборкой; службы, отсутствующие в целевой редакции, пропускаются с предупреждением. |
+
+### 3.5. `updates` (`UpdatesBuildPlan`)
 
 | Поле | Тип | По умолчанию | Описание |
 | :--- | :--- | :--- | :--- |
@@ -221,6 +228,14 @@
     "capabilitiesAdd": [],
     "capabilitiesRemove": [],
     "defaultSxsPath": null
+  },
+  "services": {
+    "changes": [
+      {
+        "name": "DiagTrack",
+        "startType": "disabled"
+      }
+    ]
   },
   "updates": {
     "items": [

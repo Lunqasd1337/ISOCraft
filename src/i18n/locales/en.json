@@ -45,6 +45,7 @@
     "image": "Image",
     "apps": "Apps",
     "features": "Features",
+    "services": "Services",
     "updates": "Updates",
     "drivers": "Drivers",
     "registry": "Registry",
@@ -89,8 +90,8 @@
     "title": "Discard queued changes?",
     "imageDesc_one": "There is {{count}} queued change. Selecting a new image will clear all configured sections.",
     "imageDesc_other": "There are {{count}} queued changes. Selecting a new image will clear all configured sections.",
-    "editionDesc_one": "Apps, Features, or Drivers has {{count}} queued change. Switching editions will clear those queues.",
-    "editionDesc_other": "Apps, Features, or Drivers have {{count}} queued changes. Switching editions will clear those queues.",
+    "editionDesc_one": "Apps, Features, Services, or Drivers has {{count}} queued change. Switching editions will clear those queues.",
+    "editionDesc_other": "Apps, Features, Services, or Drivers have {{count}} queued changes. Switching editions will clear those queues.",
     "cancel": "Cancel",
     "confirm": "Discard & Continue"
   },
@@ -179,7 +180,7 @@
       "indexLabel": "Index {{index}}",
       "sizeGb": "{{gb}} GB",
       "catalogLoading": "Loading apps & features catalog (read-only mount)...",
-      "catalogReady": "Catalog loaded: {{appx}} Appx, {{features}} features, {{caps}} capabilities, {{drivers}} drivers",
+      "catalogReady": "Catalog loaded: {{appx}} Appx, {{features}} features, {{caps}} capabilities, {{services}} services, {{drivers}} drivers",
       "catalogCached": "(cached)",
       "reloadCatalog": "Reload catalog",
       "catalogError": "Failed to load catalog: {{error}}",
@@ -283,6 +284,80 @@
       "limitAccessLabel": "Local source only, skip Windows Update (/LimitAccess)",
       "resetQueueBtn": "Reset changes",
       "noMatches": "No features match the current filter."
+    },
+    "services": {
+      "title": "Windows Services (Offline)",
+      "subtitle": "Configure offline startup types in SYSTEM\\ControlSetNNN\\Services with critical service protection",
+      "resetQueueBtn": "Reset changes",
+      "loading": "Loading edition services (MUI strings & dependency graph)...",
+      "emptyTitle": "Open an image and select an edition first",
+      "emptyDesc": "Once inspected, Win32 services, descriptions, risk tiers, and dependency chains will appear here.",
+      "noCatalogServicesTitle": "No services loaded",
+      "noCatalogServicesDesc": "Click \"Reload catalog\" on the Image screen to index services from the SYSTEM hive (needed for older caches).",
+      "searchPlaceholder": "Search by display name, service key, or description...",
+      "filterAll": "All",
+      "filterChanged": "Changed",
+      "categoryAll": "All categories",
+      "countSummary": "Showing {{shown}} of {{total}}",
+      "noMatches": "No services match the current filter.",
+      "perUserBadge": "Per-User",
+      "perUserTooltip": "Per-user service template (instantiated per signed-in user)",
+      "triggerBadge": "Trigger",
+      "triggerTooltip": "Service has Windows trigger-start rules (TriggerInfo)",
+      "lockedCriticalTooltip": "Critical system service: disabling is blocked to prevent an unbootable or broken OS",
+      "revertOneBtn": "Revert this service change",
+      "noDescription": "No description available in offline image resources.",
+      "originalStartLabel": "Original startup type:",
+      "dependsOnLabel": "Depends on:",
+      "requiredByLabel": "Required by:",
+      "disableConfirmTitle": "Disable important Windows service",
+      "disableConfirmDesc": "You are about to disable \"{{name}}\" ({{serviceName}}). This may break dependent Windows 11 functionality.",
+      "requiredByWarningTitle": "Other services in this image depend on it:",
+      "cancel": "Cancel",
+      "confirmDisableAnyway": "Disable anyway",
+      "startShort": {
+        "automatic": "Auto",
+        "delayedAuto": "Delayed",
+        "manual": "Manual",
+        "disabled": "Disabled"
+      },
+      "startFull": {
+        "automatic": "Automatic",
+        "delayedAuto": "Automatic (Delayed)",
+        "manual": "Manual",
+        "disabled": "Disabled"
+      },
+      "risks": {
+        "safe": "Safe",
+        "medium": "Medium",
+        "high": "High",
+        "critical": "Critical"
+      },
+      "categories": {
+        "core": "OS Core",
+        "security": "Security",
+        "network": "Network",
+        "updates": "Updates",
+        "telemetry": "Telemetry",
+        "devices": "Devices",
+        "gaming": "Xbox / Gaming",
+        "enterprise": "Enterprise",
+        "other": "Other"
+      },
+      "protectReasons": {
+        "core_rpc": "Core RPC/DCOM infrastructure — required for Windows to boot and run.",
+        "core_boot": "Critical core boot, session management, or state repository service.",
+        "servicing": "Manages optional features, updates, or Windows Installer servicing.",
+        "network_core": "Core networking stack, DHCP/DNS resolution, or Windows Firewall.",
+        "security_core": "Windows Defender / Windows Security protection core.",
+        "windows_update": "Required for Windows Update and package delivery.",
+        "system_important": "Important system service (Task Scheduler, WMI, Themes, Fonts, or Input).",
+        "network_important": "Handles network profiles, file sharing, or network awareness.",
+        "wireless": "Manages Wi-Fi and cellular wireless connections.",
+        "audio": "Required for system audio playback and recording.",
+        "security_important": "Credential Manager or cryptographic key isolation.",
+        "dependency_of_critical": "Direct or transitive dependency of a critical system service."
+      }
     },
     "updates": {
       "title": "Windows Updates",
@@ -549,6 +624,11 @@
       "summaryAppsCount": "-{{remove}} removed / +{{add}} added",
       "summaryFeatures": "Windows Features",
       "summaryFeaturesCount": "+{{enable}} enabled / -{{disable}} disabled",
+      "summaryServices": "Windows Services",
+      "summaryServicesCount_one": "{{count}} service",
+      "summaryServicesCount_other": "{{count}} services",
+      "summaryServicesDisabled_one": "{{count}} disabled",
+      "summaryServicesDisabled_other": "{{count}} disabled",
       "summaryUpdates": "Updates (.msu/.cab)",
       "summaryUpdatesCount_one": "{{count}} item ({{pkgs}} pkg)",
       "summaryUpdatesCount_other": "{{count}} items ({{pkgs}} pkg)",
@@ -633,7 +713,7 @@
         "5": "Windows Updates (.msu / .cab)",
         "6": "Provisioned Appx / MSIX",
         "7": "Inject Device Drivers",
-        "8": "Cleanup, Registry, Files & Post-Setup",
+        "8": "Cleanup, Services, Registry, Files & Post-Setup",
         "9": "Commit & Package Output"
       }
     }
@@ -773,7 +853,10 @@
     "tarNotFound": "System tar.exe was not found on this Windows installation.",
     "winsqliteNotFound": "System winsqlite3.dll was not found on this Windows installation.",
     "wingetIndexDownloadFailed": "Failed downloading Winget index (exit {{code}}): {{details}}",
-    "msstoreSearchFailed": "Microsoft Store search failed (exit {{code}}): {{details}}"
+    "msstoreSearchFailed": "Microsoft Store search failed (exit {{code}}): {{details}}",
+    "serviceInvalidName": "Invalid service name '{{name}}'.",
+    "serviceDuplicateEntry": "Duplicate service entry '{{name}}' in services plan.",
+    "serviceCriticalLocked": "Critical system service '{{name}}' cannot be disabled."
   },
   "xmlErrors": {
     "readFailed": "Failed to read file: {{details}}",

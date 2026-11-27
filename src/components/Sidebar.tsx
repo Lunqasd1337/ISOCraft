@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "image", labelKey: "nav.image" },
   { id: "apps", labelKey: "nav.apps" },
   { id: "features", labelKey: "nav.features" },
+  { id: "services", labelKey: "nav.services" },
   { id: "updates", labelKey: "nav.updates" },
   { id: "drivers", labelKey: "nav.drivers" },
   { id: "registry", labelKey: "nav.registry" },

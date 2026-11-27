@@ -25,7 +25,10 @@ use isocraft_core::post_setup::{
 };
 use isocraft_core::process::OperationKind;
 use isocraft_core::reg_parser::preview_reg_file;
-use isocraft_core::registry::apply_reg_files_to_mount_cancellable;
+use isocraft_core::registry::{
+    apply_reg_files_to_mount_cancellable, apply_service_changes_to_mount_cancellable,
+};
+use isocraft_core::services::validate_services_plan;
 use isocraft_core::updates::{apply_updates, inspect_update_path, run_component_cleanup};
 use isocraft_core::wim::{
     export_single_edition, mount_wim, package_install_image, package_install_image_to_path,
@@ -275,6 +278,8 @@ pub(crate) fn preflight_validate_build_config(
         }
     }
 
+    validate_services_plan(&config.services)?;
+
     for item in &config.files.items {
         if item.target == FileTarget::IsoRoot && config.target != "iso" {
             continue;
@@ -375,6 +380,7 @@ pub(crate) async fn run_build_pipeline(
         || config.updates.run_component_cleanup
         || config.drivers.items.iter().any(|d| d.inject_to_install_wim)
         || !config.drivers.remove_published_names.is_empty()
+        || !config.services.changes.is_empty()
         || config.registry.reg_files.iter().any(|r| r.enabled)
         || config
             .files
@@ -1091,6 +1097,46 @@ pub(crate) async fn run_build_pipeline(
                     }
                 }
 
+                if install_mounted && !config.services.changes.is_empty() {
+                    emit_progress(
+                        &app,
+                        8,
+                        9,
+                        "step_services",
+                        74.5,
+                        "Applying offline Windows Services configuration...",
+                    );
+
+                    let mount_clone = mount_install.clone();
+                    let ws_clone = workspace_dir.clone();
+                    let svc_changes = config.services.changes.clone();
+                    let app_clone = app.clone();
+                    let rep = tokio::task::spawn_blocking(move || {
+                        apply_service_changes_to_mount_cancellable(
+                            &mount_clone,
+                            &ws_clone,
+                            &svc_changes,
+                            || app_clone.state::<AppState>().process_guard.is_cancel_requested(),
+                            |msg| {
+                                let st = app_clone.state::<AppState>();
+                                log_and_emit(&st, &app_clone, "info", msg);
+                            },
+                        )
+                    })
+                    .await
+                    .map_err(|e| format!("Offline services task panicked: {e}"))??;
+
+                    log_and_emit(
+                        &state,
+                        &app,
+                        "info",
+                        format!(
+                            "Offline Windows Services applied (applied={}, skipped_missing={}, skipped_non_win32={}).",
+                            rep.applied, rep.skipped_missing, rep.skipped_non_win32
+                        ),
+                    );
+                }
+
                 let enabled_regs: Vec<PathBuf> = config
                     .registry
                     .reg_files
@@ -1500,6 +1546,7 @@ mod tests {
         WingetSource,
     };
     use isocraft_core::registry::{RegQueueEntry, RegistryBuildPlan};
+    use isocraft_core::services::{ServiceStartChange, ServiceStartType, ServicesBuildPlan};
     use isocraft_core::updates::UpdatesBuildPlan;
     use isocraft_core::wim::InstallOutputFormat;
 
@@ -1517,6 +1564,7 @@ mod tests {
             volume_label: "WIN11".to_string(),
             apps: AppsBuildPlan::default(),
             features: FeaturesBuildPlan::default(),
+            services: ServicesBuildPlan::default(),
             updates: UpdatesBuildPlan::default(),
             drivers: DriversBuildPlan::default(),
             registry: RegistryBuildPlan::default(),
@@ -1661,6 +1709,23 @@ mod tests {
         assert!(preflight_validate_build_config(&cfg, &dir).is_ok());
         cfg.post_setup.items[0].winget_id = Some("bad;calc".into());
         assert!(preflight_validate_build_config(&cfg, &dir).is_err());
+        cfg.post_setup.items.clear();
+
+        // Locked critical service disable rejected in preflight; safe service accepted
+        cfg.services.changes = vec![ServiceStartChange {
+            name: "DiagTrack".into(),
+            start_type: ServiceStartType::Disabled,
+        }];
+        assert!(preflight_validate_build_config(&cfg, &dir).is_ok());
+        cfg.services.changes = vec![ServiceStartChange {
+            name: "RpcSs".into(),
+            start_type: ServiceStartType::Disabled,
+        }];
+        assert!(
+            preflight_validate_build_config(&cfg, &dir)
+                .unwrap_err()
+                .contains("cannot be disabled")
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -8,10 +8,13 @@ use crate::image::{
     SourceKind, dismount_iso, mount_iso_drive_letter, run_powershell_script_with_env,
 };
 use crate::process::ProcessGuard;
+use crate::registry::read_offline_services_from_mount;
+use crate::services::{WindowsServiceInfo, build_services_from_raw, reclassify_services};
 use crate::wim::{export_single_edition, mount_wim, read_workspace_state_status, unmount_wim};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +28,8 @@ pub struct ImageCatalog {
     pub capabilities: Vec<WindowsCapabilityInfo>,
     #[serde(default)]
     pub drivers: Vec<InstalledDriverInfo>,
+    #[serde(default)]
+    pub services: Vec<WindowsServiceInfo>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,7 +76,7 @@ fn catalog_cache_path(workspace_dir: &Path, source_path: &Path, index: u32) -> P
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let key = format!("{norm_path}|{len}|{mtime}|{index}|v2");
+    let key = format!("{norm_path}|{len}|{mtime}|{index}|v3");
     workspace_dir
         .join("cache")
         .join(format!("catalog_{}.json", fnv1a_64(&key)))
@@ -367,9 +372,9 @@ pub async fn query_mounted_catalog_bundle_tracked(
     parse_ps_catalog_bundle_json(&json)
 }
 
-/// Loads the catalog (Provisioned Appx, Optional Features, Capabilities) for a selected edition.
+/// Loads the catalog (Provisioned Appx, Optional Features, Capabilities, Drivers, Services) for a selected edition.
 /// Uses disk cache when valid; otherwise performs a single read-only mount, extracts JSON via
-/// a single PowerShell Dism session, and immediately unmounts with `/Discard`.
+/// a single PowerShell Dism session and reads offline Services via Win32, then immediately unmounts with `/Discard`.
 #[allow(clippy::too_many_arguments)]
 pub async fn load_image_catalog<F>(
     dism_path: &Path,
@@ -379,6 +384,7 @@ pub async fn load_image_catalog<F>(
     index: u32,
     workspace_dir: &Path,
     force_refresh: bool,
+    preferred_lang: Option<&str>,
     guard: Option<&ProcessGuard>,
     mut on_log: F,
 ) -> Result<ImageCatalog, String>
@@ -417,6 +423,7 @@ where
                     pkg.is_protected = reason.is_some();
                     pkg.protection_reason = reason.map(str::to_string);
                 }
+                reclassify_services(&mut cached.services);
                 cached.from_cache = true;
                 return Some(cached);
             }
@@ -428,11 +435,12 @@ where
 
         if let Some(cached) = cached_opt {
             on_log(&format!(
-                "Loaded edition catalog from cache ({} Appx, {} Features, {} Capabilities, {} Drivers).",
+                "Loaded edition catalog from cache ({} Appx, {} Features, {} Capabilities, {} Drivers, {} Services).",
                 cached.appx_packages.len(),
                 cached.features.len(),
                 cached.capabilities.len(),
-                cached.drivers.len()
+                cached.drivers.len(),
+                cached.services.len()
             ));
             return Ok(cached);
         }
@@ -542,32 +550,77 @@ where
         on_log(
             "Querying Appx, Optional Features, Capabilities, and Drivers via PowerShell Dism...",
         );
-        let query_res = query_mounted_catalog_bundle_tracked(&ro_mount_dir, guard)
-            .await
-            .map(
-                |(appx_packages, features, capabilities, drivers)| ImageCatalog {
-                    source_path: source_path.to_string_lossy().to_string(),
-                    edition_index: index,
-                    from_cache: false,
-                    appx_packages,
-                    features,
-                    capabilities,
-                    drivers,
-                },
-            );
+        let query_res = query_mounted_catalog_bundle_tracked(&ro_mount_dir, guard).await;
+
+        let services_res = match &query_res {
+            Ok(_) => {
+                on_log("Reading offline Windows Services & MUI metadata from SYSTEM hive...");
+                let mount_clone = ro_mount_dir.clone();
+                let inspect_clone = inspect_dir.clone();
+                let ws_clone = workspace_dir.to_path_buf();
+                let lang_clone = preferred_lang.map(str::to_string);
+                let cancel_flag = guard.map(|g| g.cancel_handle());
+                tokio::task::spawn_blocking(move || {
+                    let raw = read_offline_services_from_mount(
+                        &mount_clone,
+                        &inspect_clone,
+                        &ws_clone,
+                        || {
+                            cancel_flag
+                                .as_ref()
+                                .is_some_and(|c| c.load(Ordering::SeqCst))
+                        },
+                        |_msg| {},
+                    )?;
+                    Ok::<Vec<WindowsServiceInfo>, String>(build_services_from_raw(
+                        &mount_clone,
+                        raw,
+                        lang_clone.as_deref(),
+                    ))
+                })
+                .await
+                .map_err(|e| format!("Offline services scan task panicked: {e}"))
+                .and_then(|r| r)
+            }
+            Err(_) => Ok(Vec::new()),
+        };
 
         let unmount_res = unmount_wim(dism_path, &ro_mount_dir, false, workspace_dir, None, |l| {
             on_log(l)
         })
         .await;
 
-        let catalog = match (query_res, unmount_res) {
-            (Ok(cat), Ok(())) => cat,
+        let (appx_packages, features, capabilities, drivers) = match (query_res, unmount_res) {
+            (Ok(bundle), Ok(())) => bundle,
             (Err(qerr), Ok(())) => return Err(qerr),
             (Ok(_), Err(uerr)) => return Err(uerr),
             (Err(qerr), Err(uerr)) => {
                 return Err(format!("{qerr}; additionally unmount failed: {uerr}"));
             }
+        };
+
+        let services = match services_res {
+            Ok(svcs) => svcs,
+            Err(err) => {
+                if guard.is_some_and(|g| g.is_cancel_requested()) {
+                    return Err("Operation cancelled by user.".to_string());
+                }
+                on_log(&format!(
+                    "Warning: failed reading offline services catalog ({err}); continuing without services."
+                ));
+                Vec::new()
+            }
+        };
+
+        let catalog = ImageCatalog {
+            source_path: source_path.to_string_lossy().to_string(),
+            edition_index: index,
+            from_cache: false,
+            appx_packages,
+            features,
+            capabilities,
+            drivers,
+            services,
         };
 
         let cache_clone = cache_path.clone();
@@ -583,11 +636,12 @@ where
         .await;
 
         on_log(&format!(
-            "Catalog cached ({} Appx, {} Features, {} Capabilities, {} Drivers).",
+            "Catalog cached ({} Appx, {} Features, {} Capabilities, {} Drivers, {} Services).",
             catalog.appx_packages.len(),
             catalog.features.len(),
             catalog.capabilities.len(),
-            catalog.drivers.len()
+            catalog.drivers.len(),
+            catalog.services.len()
         ));
 
         Ok(catalog)

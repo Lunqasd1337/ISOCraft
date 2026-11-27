@@ -385,6 +385,7 @@ export function ImageScreen({
                       features: catalog.features.length,
                       caps: catalog.capabilities.length,
                       drivers: catalog.drivers?.length ?? 0,
+                      services: catalog.services?.length ?? 0,
                     })}{" "}
                     {catalog.fromCache && (
                       <span className="text-text-secondary">

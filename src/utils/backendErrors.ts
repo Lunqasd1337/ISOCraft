@@ -471,6 +471,18 @@ const REGEX_BACKEND_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
     /^Failed reading '([^']+)': ([\s\S]+)$/,
     (m) => i18n.t("regMessages.failedReadFile", { path: m[1], details: m[2] }),
   ],
+  [
+    /^Invalid service name '([^']*)'\.$/,
+    (m) => i18n.t("backendErrors.serviceInvalidName", { name: m[1] }),
+  ],
+  [
+    /^Duplicate service entry '([^']*)' in services plan\.$/,
+    (m) => i18n.t("backendErrors.serviceDuplicateEntry", { name: m[1] }),
+  ],
+  [
+    /^Critical system service '([^']*)' cannot be disabled\.$/,
+    (m) => i18n.t("backendErrors.serviceCriticalLocked", { name: m[1] }),
+  ],
 ];
 
 function translateMainBackendError(main: string): string {

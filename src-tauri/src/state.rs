@@ -7,6 +7,7 @@ use isocraft_core::logger::SessionLogger;
 use isocraft_core::post_setup::PostSetupBuildPlan;
 use isocraft_core::process::ProcessGuard;
 use isocraft_core::registry::RegistryBuildPlan;
+use isocraft_core::services::ServicesBuildPlan;
 use isocraft_core::settings::AppSettings;
 use isocraft_core::updates::UpdatesBuildPlan;
 use isocraft_core::wim::{
@@ -68,6 +69,8 @@ pub struct BuildConfig {
     pub apps: AppsBuildPlan,
     #[serde(default)]
     pub features: FeaturesBuildPlan,
+    #[serde(default)]
+    pub services: ServicesBuildPlan,
     #[serde(default)]
     pub updates: UpdatesBuildPlan,
     #[serde(default)]

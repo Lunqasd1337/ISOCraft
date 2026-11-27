@@ -292,6 +292,12 @@ pub(crate) async fn load_image_catalog(
     .map(PathBuf::from)
     .ok_or_else(|| "wimlib-imagex.exe not found.".to_string())?;
 
+    let preferred_lang = match settings.language.trim().to_ascii_lowercase().as_str() {
+        "ru" => Some("ru-RU"),
+        "en" => Some("en-US"),
+        _ => None,
+    };
+
     let res = core_load_catalog(
         &dism_path,
         &wimlib_path,
@@ -300,6 +306,7 @@ pub(crate) async fn load_image_catalog(
         index,
         &workspace_dir,
         force_refresh.unwrap_or(false),
+        preferred_lang,
         Some(&state.process_guard),
         |msg| log_and_emit(&state, &app, "info", msg),
     )

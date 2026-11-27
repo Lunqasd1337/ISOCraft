@@ -20,7 +20,7 @@
 
 ## Приоритет 2 — Продвинутое обслуживание образа
 
-- [ ] **Оффлайн-менеджер служб Windows (`Services`)**
+- [x] **Оффлайн-менеджер служб Windows (`Services`)**
   - Чтение служб из `SYSTEM\ControlSetNNN\Services` на этапе инспекции образа и изменение типа запуска (`Automatic`, `DelayedAuto`, `Manual`, `Disabled`) через нативный Win32-движок `registry.rs`.
   - Цветовые уровни риска и защита критических системных служб (RPC, DHCP, Windows Update, Security Center и др.) от случайного отключения.
 

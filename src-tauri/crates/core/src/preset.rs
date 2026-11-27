@@ -3,6 +3,7 @@ use crate::files::FilesBuildPlan;
 use crate::fs_utils::{is_symlink_or_reparse, is_unc_or_device_path, read_file_bounded};
 use crate::post_setup::{PostSetupBuildPlan, PostSetupItemKind};
 use crate::registry::RegistryBuildPlan;
+use crate::services::{ServicesBuildPlan, validate_services_plan};
 use crate::updates::UpdatesBuildPlan;
 use crate::wim::InstallOutputFormat;
 use chrono::Utc;
@@ -171,6 +172,7 @@ pub struct StudioPreset {
     pub meta: PresetMeta,
     pub apps: PresetApps,
     pub features: PresetFeatures,
+    pub services: ServicesBuildPlan,
     pub updates: UpdatesBuildPlan,
     pub drivers: PresetDrivers,
     pub registry: RegistryBuildPlan,
@@ -475,6 +477,7 @@ pub fn import_preset_from_file(src_path: &Path) -> Result<PresetImportResult, St
     };
 
     reject_unc_paths_in_preset(&preset)?;
+    validate_services_plan(&preset.services)?;
 
     let missing_paths = find_missing_preset_paths(&preset);
     Ok(PresetImportResult {
@@ -570,6 +573,12 @@ mod tests {
                 capabilities_remove: vec!["Hello.Face.20134~~~~0.0.1.0".to_string()],
                 default_sxs_path: Some(sxs_dir.to_string_lossy().to_string()),
             },
+            services: ServicesBuildPlan {
+                changes: vec![crate::services::ServiceStartChange {
+                    name: "DiagTrack".to_string(),
+                    start_type: crate::services::ServiceStartType::Disabled,
+                }],
+            },
             updates: UpdatesBuildPlan {
                 items: vec![UpdateQueueItem {
                     path: upd_file.to_string_lossy().to_string(),
@@ -654,6 +663,8 @@ mod tests {
             imported.preset.drivers.remove_published_names,
             vec!["oem5.inf".to_string()]
         );
+        assert_eq!(imported.preset.services.changes.len(), 1);
+        assert_eq!(imported.preset.services.changes[0].name, "DiagTrack");
         assert!(imported.missing_paths.is_empty());
 
         let _ = fs::remove_dir_all(&base);
@@ -879,6 +890,26 @@ mod tests {
 
         let err = import_preset_from_file(&preset_file).unwrap_err();
         assert!(err.contains("UNC network or device path is not allowed"));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_locked_critical_service_disable_in_imported_preset() {
+        let base = make_temp_dir("isocraft_preset_svc_lock");
+        let preset_file = base.join("locked_svc.json");
+        let raw_json = r#"{
+          "schemaVersion": "1.0",
+          "services": {
+            "changes": [
+              { "name": "RpcSs", "startType": "disabled" }
+            ]
+          }
+        }"#;
+        fs::write(&preset_file, raw_json).unwrap();
+
+        let err = import_preset_from_file(&preset_file).unwrap_err();
+        assert!(err.contains("cannot be disabled"));
 
         let _ = fs::remove_dir_all(&base);
     }
