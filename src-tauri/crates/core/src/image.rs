@@ -4,7 +4,7 @@ use crate::fs_utils::{
     is_unc_or_device_path,
 };
 use crate::process::{
-    ProcessGuard, kill_process_tree, run_tracked_command, run_tracked_command_with_env,
+    ProcessGuard, run_tracked_command, run_tracked_command_raw, run_tracked_command_raw_with_env,
 };
 use crate::wim::{export_single_edition, is_swm_part_for_stem};
 use quick_xml::Reader;
@@ -12,12 +12,7 @@ use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::Ordering;
-use tokio::process::Command;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -419,65 +414,27 @@ async fn read_wim_xml_with_wimlib(
     image_path: &Path,
     guard: Option<&ProcessGuard>,
 ) -> Result<String, String> {
-    let cancel_handle = guard.map(|g| g.cancel_handle());
-    if cancel_handle
-        .as_ref()
-        .is_some_and(|c| c.load(Ordering::SeqCst))
-    {
-        return Err("Operation cancelled by user.".to_string());
-    }
+    let args = vec![
+        "info".to_string(),
+        image_path.to_string_lossy().to_string(),
+        "--xml".to_string(),
+    ];
+    let out = run_tracked_command_raw(&wimlib_path.to_string_lossy(), &args, None, guard).await?;
 
-    let mut cmd = Command::new(wimlib_path);
-    cmd.args(["info", &image_path.to_string_lossy(), "--xml"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null());
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to execute wimlib-imagex: {e}"))?;
-
-    let child_pid = child.id();
-    if let (Some(g), Some(pid)) = (guard, child_pid) {
-        g.register_pid(pid);
-        if cancel_handle
-            .as_ref()
-            .is_some_and(|c| c.load(Ordering::SeqCst))
-        {
-            kill_process_tree(pid);
-            g.unregister_pid(pid);
-            return Err("Operation cancelled by user.".to_string());
-        }
-    }
-
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("Failed waiting for wimlib-imagex: {e}"))?;
-
-    if let (Some(g), Some(pid)) = (guard, child_pid) {
-        g.unregister_pid(pid);
-    }
-
-    if cancel_handle
-        .as_ref()
-        .is_some_and(|c| c.load(Ordering::SeqCst))
-    {
-        return Err("Operation cancelled by user.".to_string());
-    }
-
-    if !output.status.success() {
-        let stderr = decode_text_bytes(&output.stderr);
+    if out.exit_code != 0 {
+        let stderr = decode_text_bytes(&out.stderr);
         return Err(format!(
-            "wimlib-imagex info failed (code {:?}): {}",
-            output.status.code(),
+            "wimlib-imagex info failed (code {}): {}",
+            out.exit_code,
             stderr.trim()
         ));
     }
 
-    Ok(decode_text_bytes(&output.stdout))
+    if out.stdout_truncated {
+        return Err("wimlib-imagex XML metadata exceeded the 32 MiB capture limit.".to_string());
+    }
+
+    Ok(decode_text_bytes(&out.stdout))
 }
 
 pub fn escape_ps_single_quoted(s: &str) -> String {
@@ -525,18 +482,24 @@ pub async fn run_powershell_script_with_env(
         "-Command".to_string(),
         full_script,
     ];
-    let out = run_tracked_command_with_env(&ps_path, &args, None, envs, guard, |_| {}).await?;
+    let out = run_tracked_command_raw_with_env(&ps_path, &args, None, envs, guard).await?;
 
     if out.exit_code != 0 {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
         return Err(format!(
             "PowerShell failed (code {}): {} {}",
             out.exit_code,
-            out.stderr.trim(),
-            out.stdout.trim()
+            stderr.trim(),
+            stdout.trim()
         ));
     }
 
-    Ok(out.stdout)
+    if out.stdout_truncated {
+        return Err("PowerShell output exceeded the 32 MiB capture limit.".to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
