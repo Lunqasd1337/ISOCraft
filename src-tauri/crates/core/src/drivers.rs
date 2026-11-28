@@ -1,5 +1,6 @@
 use crate::fs_utils::{
-    is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path, normalize_path_for_prefix,
+    is_path_overlapping_dir, is_symlink_or_reparse, is_unc_or_device_path,
+    normalize_path_for_prefix,
 };
 use crate::image::run_powershell_script_with_env;
 use crate::process::{ProcessGuard, run_tracked_command};
@@ -261,7 +262,7 @@ pub fn validate_driver_export_dir(path: &Path, session_dir: Option<&Path>) -> Re
         }
     }
     if let Some(sess) = session_dir
-        && is_path_within_dir(path, sess)
+        && is_path_overlapping_dir(path, sess)
     {
         return Err(format!(
             "Driver export destination cannot reside inside temporary workspace session_current: '{}'",
@@ -278,7 +279,7 @@ pub fn validate_driver_export_dir(path: &Path, session_dir: Option<&Path>) -> Re
     for sys_env in ["SystemRoot", "WINDIR"] {
         if let Some(val) = std::env::var_os(sys_env) {
             let sys_path = PathBuf::from(val);
-            if is_path_within_dir(&normalized, &sys_path) {
+            if is_path_overlapping_dir(path, &sys_path) {
                 return Err(format!(
                     "Windows directory cannot be used as driver export destination: '{}'",
                     path.display()
