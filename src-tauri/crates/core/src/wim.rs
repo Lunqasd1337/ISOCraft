@@ -1,5 +1,5 @@
 use crate::env::WorkspaceState;
-use crate::fs_utils::{copy_file_cancellable, is_path_within_dir, write_file_atomic};
+use crate::fs_utils::{copy_file_cancellable, is_path_strictly_within_dir, write_file_atomic};
 use crate::image::run_wimlib_command;
 use crate::process::{ProcessGuard, run_tracked_command};
 use chrono::Local;
@@ -411,7 +411,7 @@ where
 
     for mount in &state.active_mounts {
         let mount_path = PathBuf::from(mount);
-        if !is_path_within_dir(&mount_path, workspace_dir) {
+        if !is_path_strictly_within_dir(&mount_path, workspace_dir) {
             let msg =
                 format!("Refusing to discard stale mount outside workspace directory: '{mount}'");
             on_log(&msg);
@@ -505,7 +505,8 @@ where
         let before_len = remaining_mounts.len();
         remaining_mounts.retain(|m| {
             let norm = m.trim_end_matches(['\\', '/']).to_ascii_lowercase();
-            !is_path_within_dir(Path::new(m), workspace_dir) || after_mounts.contains(&norm)
+            !is_path_strictly_within_dir(Path::new(m), workspace_dir)
+                || after_mounts.contains(&norm)
         });
         if remaining_mounts.len() < before_len && remaining_mounts.is_empty() {
             errors.retain(|e| !e.contains("DISM /Unmount-Image /Discard failed"));

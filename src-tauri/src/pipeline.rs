@@ -14,7 +14,9 @@ use isocraft_core::features::{
     apply_add_capability, apply_disable_feature, apply_enable_feature, apply_remove_capability,
 };
 use isocraft_core::files::{FileTarget, apply_file_injections, validate_file_injection_item};
-use isocraft_core::fs_utils::{is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path};
+use isocraft_core::fs_utils::{
+    is_path_overlapping_dir, is_symlink_or_reparse, is_unc_or_device_path,
+};
 use isocraft_core::image::{SourceKind, extract_iso_and_export_edition};
 use isocraft_core::iso::{
     IsoBuildOptions, build_bootable_iso, validate_autounattend, validate_autounattend_with_bytes,
@@ -97,7 +99,7 @@ fn reject_unc_or_session_path(path: &Path, session_dir: &Path, label: &str) -> R
             path.display()
         ));
     }
-    if is_path_within_dir(path, session_dir) {
+    if is_path_overlapping_dir(path, session_dir) {
         return Err(format!(
             "{label} cannot reside inside temporary workspace session_current: '{}'",
             path.display()
@@ -183,7 +185,7 @@ pub(crate) fn preflight_validate_build_config(
         }
     }
 
-    if is_path_within_dir(&output_path, &session_dir) {
+    if is_path_overlapping_dir(&output_path, &session_dir) {
         return Err(
             "Output path cannot be placed inside temporary workspace session_current directory."
                 .to_string(),

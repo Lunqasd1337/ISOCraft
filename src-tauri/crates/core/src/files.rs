@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::fs_utils::{copy_file_cancellable, is_symlink_or_reparse, is_windows_reserved_name};
+use crate::fs_utils::{
+    DEFAULT_COPY_BUFFER_SIZE, copy_file_cancellable_with_buf, is_symlink_or_reparse,
+    is_windows_reserved_name,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -431,6 +434,7 @@ where
     C: Fn() -> bool,
 {
     let mut report = FileInjectionReport::default();
+    let mut copy_buf: Option<Vec<u8>> = None;
 
     for item in items.iter().filter(|i| i.target == target_kind) {
         if is_cancelled() {
@@ -480,7 +484,8 @@ where
                 clear_readonly_on_file(&dest_file);
             }
 
-            copy_file_cancellable(src, &dest_file, &is_cancelled)?;
+            let buf = copy_buf.get_or_insert_with(|| vec![0u8; DEFAULT_COPY_BUFFER_SIZE]);
+            copy_file_cancellable_with_buf(src, &dest_file, buf, &is_cancelled)?;
             clear_readonly_on_file(&dest_file);
             report.copied_files += 1;
             on_log(&format!(
@@ -599,7 +604,14 @@ where
                             }
                             clear_readonly_on_file(&child_dest);
                         }
-                        copy_file_cancellable(&child_src, &child_dest, &is_cancelled)?;
+                        let buf =
+                            copy_buf.get_or_insert_with(|| vec![0u8; DEFAULT_COPY_BUFFER_SIZE]);
+                        copy_file_cancellable_with_buf(
+                            &child_src,
+                            &child_dest,
+                            buf,
+                            &is_cancelled,
+                        )?;
                         clear_readonly_on_file(&child_dest);
                         dir_copied += 1;
                         report.copied_files += 1;

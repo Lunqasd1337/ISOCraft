@@ -1,6 +1,6 @@
 use crate::fs_utils::{
-    copy_file_cancellable, is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path,
-    read_file_bounded,
+    DEFAULT_COPY_BUFFER_SIZE, copy_file_cancellable_with_buf, is_path_overlapping_dir,
+    is_symlink_or_reparse, is_unc_or_device_path, read_file_bounded,
 };
 use crate::image::decode_text_bytes;
 use crate::iso::{validate_autounattend_bytes, validate_autounattend_with_bytes};
@@ -270,7 +270,7 @@ pub fn validate_post_setup_plan(
                     ));
                 }
                 if let Some(sess) = session_dir
-                    && is_path_within_dir(p, sess)
+                    && is_path_overlapping_dir(p, sess)
                 {
                     return Err(format!(
                         "Post-Setup file cannot reside inside temporary workspace session_current: '{}'",
@@ -1275,6 +1275,8 @@ where
         None
     };
 
+    let mut copy_buf: Option<Vec<u8>> = None;
+
     for (idx, item) in plan.items.iter().enumerate() {
         if !item.enabled {
             continue;
@@ -1305,7 +1307,8 @@ where
                         .join(&payload_name)
                 }
             };
-            copy_file_cancellable(src, &dest, &is_cancelled)?;
+            let buf = copy_buf.get_or_insert_with(|| vec![0u8; DEFAULT_COPY_BUFFER_SIZE]);
+            copy_file_cancellable_with_buf(src, &dest, buf, &is_cancelled)?;
             on_log(&format!(
                 "Staged Post-Setup payload ({:?}): {} -> {}",
                 item.phase,
