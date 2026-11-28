@@ -1,4 +1,5 @@
-use crate::fs_utils::{is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path};
+pub use crate::fs_utils::strip_windows_verbatim_prefix;
+use crate::fs_utils::{is_path_strictly_within_dir, is_symlink_or_reparse, is_unc_or_device_path};
 use crate::settings::{AppSettings, validate_workspace_dir};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -133,38 +134,6 @@ fn windows_root_dir() -> PathBuf {
         .or_else(|| std::env::var_os("WINDIR"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
-}
-
-/// Strips the Windows `\\?\` verbatim path prefix when the resulting path is a
-/// standard drive or UNC path shorter than the legacy MAX_PATH limit (260 UTF-16
-/// code units), keeping device paths and long paths intact.
-pub fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
-    const MAX_PATH_UTF16: usize = 260;
-    let Some(raw) = path.to_str() else {
-        return path.to_path_buf();
-    };
-    let Some(rest) = raw.strip_prefix(r"\\?\") else {
-        return path.to_path_buf();
-    };
-    if let Some(unc_prefix) = rest.get(..4)
-        && unc_prefix.eq_ignore_ascii_case(r"UNC\")
-    {
-        let unc = format!(r"\\{}", &rest[4..]);
-        if unc.encode_utf16().count() < MAX_PATH_UTF16 {
-            return PathBuf::from(unc);
-        }
-        return path.to_path_buf();
-    }
-    let bytes = rest.as_bytes();
-    if bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/')
-        && rest.encode_utf16().count() < MAX_PATH_UTF16
-    {
-        return PathBuf::from(rest);
-    }
-    path.to_path_buf()
 }
 
 fn find_system_binary(sys_exe: PathBuf, exe_name: &str) -> ToolStatus {
@@ -438,7 +407,8 @@ pub fn is_in_protected_system_dir(path: &Path) -> bool {
         }
     }
     dirs.push(windows_root_dir());
-    dirs.iter().any(|dir| is_path_within_dir(path, dir))
+    dirs.iter()
+        .any(|dir| is_path_strictly_within_dir(path, dir))
 }
 
 #[cfg(all(windows, not(test)))]

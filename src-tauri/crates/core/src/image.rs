@@ -1,5 +1,8 @@
 use crate::env::find_powershell;
-use crate::fs_utils::{copy_file_cancellable, is_symlink_or_reparse, is_unc_or_device_path};
+use crate::fs_utils::{
+    DEFAULT_COPY_BUFFER_SIZE, copy_file_cancellable_with_buf, is_symlink_or_reparse,
+    is_unc_or_device_path,
+};
 use crate::process::{
     ProcessGuard, kill_process_tree, run_tracked_command, run_tracked_command_with_env,
 };
@@ -368,6 +371,7 @@ where
     fs::create_dir_all(dst)
         .map_err(|e| format!("Failed to create directory '{}': {e}", dst.display()))?;
     let mut total_files = 0u64;
+    let mut copy_buf = vec![0u8; DEFAULT_COPY_BUFFER_SIZE];
     let mut stack = vec![(src.to_path_buf(), dst.to_path_buf(), PathBuf::new())];
 
     while let Some((cur_src, cur_dst, cur_rel)) = stack.pop() {
@@ -398,7 +402,7 @@ where
                     .map_err(|e| format!("Failed creating dir '{}': {e}", dst_path.display()))?;
                 stack.push((src_path, dst_path, next_rel));
             } else if meta.is_file() {
-                copy_file_cancellable(&src_path, &dst_path, &is_cancelled)?;
+                copy_file_cancellable_with_buf(&src_path, &dst_path, &mut copy_buf, &is_cancelled)?;
                 total_files += 1;
                 if total_files.is_multiple_of(50) {
                     on_progress(total_files);

@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::fs_utils::{
-    is_path_within_dir, is_symlink_or_reparse, is_unc_or_device_path, normalize_path_for_prefix,
-    write_file_atomic,
+    is_path_overlapping_dir, is_symlink_or_reparse, is_unc_or_device_path,
+    normalize_path_for_prefix, write_file_atomic,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ pub fn validate_workspace_dir(workspace: &Path) -> Result<(), String> {
     for sys_env in ["SystemRoot", "WINDIR"] {
         if let Some(val) = std::env::var_os(sys_env) {
             let sys_path = PathBuf::from(val);
-            if is_path_within_dir(&normalized, &sys_path) {
+            if is_path_overlapping_dir(workspace, &sys_path) {
                 return Err(format!(
                     "Invalid workspace directory '{}': Windows directory cannot be used as a workspace.",
                     workspace.display()
